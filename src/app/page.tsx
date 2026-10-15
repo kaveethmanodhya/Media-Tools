@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { UsageCounters } from "@/components/UsageCounters";
 import {
   Film,
   Layers,
@@ -147,9 +146,7 @@ export default function HomePage() {
           </a>
         </div>
 
-        <UsageCounters />
-
-        {/* Quick Stats Banner */
+        {/* Quick Stats Banner */}
         <div className="hero-stats-strip">
           <div className="stat-pill">
             <span className="stat-num">11</span>

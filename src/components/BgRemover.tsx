@@ -5,12 +5,17 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Eraser, UploadCloud, Download, X, RefreshCw, Cpu, CheckCircle,
   Sparkles, Sliders, Image as ImageIcon, Video, Layers, Eye,
-  Play, Pause, Zap, Check, ChevronDown, ChevronUp, Palette, Grid, Monitor
+  Play, Pause, Zap, Check, ChevronDown, ChevronUp, Palette, Grid, Monitor,
+  RotateCcw, RotateCw, Wand, Trash, Paintbrush
 } from 'lucide-react';
 import { formatFileSize, formatTime } from '@/lib/utils';
 import {
   removeImageBackground,
+  applyMatteRefinement,
   checkWebGPUSupport,
+  purgeColorFromImageData,
+  purgeCornersFromImageData,
+  MattingRefinementOptions,
   BgRemovalModel,
   BgRemovalDevice
 } from '@/lib/bgRemovalEngine';
@@ -29,6 +34,8 @@ interface BatchImageItem {
   previewUrl: string;
   resultUrl: string | null;
   resultBlob: Blob | null;
+  rawBlob?: Blob | null;
+  originalResultBlob?: Blob | null;
   status: 'idle' | 'processing' | 'done' | 'error';
   progress: number;
   timeMs?: number;
@@ -45,8 +52,11 @@ export function BgRemover() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('image/png');
   const [maxDimension, setMaxDimension] = useState<number>(0); // 0 = original
   const [refineEdges, setRefineEdges] = useState<boolean>(true);
-  const [featherRadius, setFeatherRadius] = useState<number>(1);
-  const [thresholdCutoff, setThresholdCutoff] = useState<number>(12);
+  const [featherRadius, setFeatherRadius] = useState<number>(0.8);
+  const [thresholdCutoff, setThresholdCutoff] = useState<number>(45); // 45 for clean background cut
+  const [edgeChoke, setEdgeChoke] = useState<number>(1.0); // 1px contour choke to remove background fringe
+  const [contrastBoost, setContrastBoost] = useState<number>(1.4);
+  const [removeStrayIslands, setRemoveStrayIslands] = useState<boolean>(true);
   const [deFringe, setDeFringe] = useState<boolean>(true);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
@@ -54,7 +64,21 @@ export function BgRemover() {
   const [backdrop, setBackdrop] = useState<BackdropStyle>('checker');
   const [customColor, setCustomColor] = useState<string>('#3b82f6');
   const [sliderPosition, setSliderPosition] = useState<number>(50); // Split slider 0-100%
-  const [isComparing, setIsComparing] = useState<boolean>(true);
+  const [viewMode, setViewMode] = useState<'compare' | 'result' | 'eraser'>('compare');
+
+  // Manual Eraser, Restore Brush & Magic Wand State
+  const [touchTool, setTouchTool] = useState<'eraser' | 'restore' | 'wand'>('eraser');
+  const [wandTolerance, setWandTolerance] = useState<number>(32);
+  const [wandContiguous, setWandContiguous] = useState<boolean>(true);
+  const [brushSize, setBrushSize] = useState<number>(35);
+  const [undoStack, setUndoStack] = useState<ImageData[]>([]);
+  const [redoStack, setRedoStack] = useState<ImageData[]>([]);
+  const [brushPos, setBrushPos] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
+  const eraserCanvasRef = useRef<HTMLCanvasElement>(null);
+  const originalImageRef = useRef<HTMLImageElement | null>(null);
+  const isPaintingRef = useRef<boolean>(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const refinementTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Single / Batch Images State
   const [images, setImages] = useState<BatchImageItem[]>([]);
@@ -196,6 +220,9 @@ export function BgRemover() {
             featherRadius,
             thresholdCutoff,
             deFringe,
+            edgeChoke,
+            contrastBoost,
+            removeStrayIslands,
           },
           onProgress: (pct, stage) => {
             setImages((prev) =>
@@ -216,6 +243,8 @@ export function BgRemover() {
                   progress: 100,
                   resultUrl: url,
                   resultBlob: res.blob,
+                  rawBlob: res.rawBlob,
+                  originalResultBlob: res.rawBlob,
                   timeMs: res.timeMs,
                   deviceUsed: res.deviceUsed,
                 }
@@ -375,6 +404,521 @@ export function BgRemover() {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {}
   }, []);
+
+  // Canvas initialization & preloading for touch-up, restore, undo and redo
+  useEffect(() => {
+    if (!currentItem?.resultBlob) return;
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    // Preload original image for Restore Brush
+    if (currentItem.previewUrl) {
+      const orig = new Image();
+      orig.crossOrigin = 'anonymous';
+      orig.onload = () => {
+        originalImageRef.current = orig;
+      };
+      orig.src = currentItem.previewUrl;
+    }
+
+    const img = new Image();
+    const url = URL.createObjectURL(currentItem.resultBlob);
+    img.onload = () => {
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  }, [viewMode, currentItem?.id, currentItem?.resultUrl, currentItem?.previewUrl]);
+
+  // Apply a preset and immediately re-refine the currently selected image
+  const applyPreset = async (cutoffVal: number, chokeVal: number, featherVal: number, contrastVal: number) => {
+    setThresholdCutoff(cutoffVal);
+    setEdgeChoke(chokeVal);
+    setFeatherRadius(featherVal);
+    setContrastBoost(contrastVal);
+
+    if (!currentItem || !(currentItem.rawBlob || currentItem.originalResultBlob)) return;
+    const baseBlob = currentItem.rawBlob || currentItem.originalResultBlob;
+    if (!baseBlob) return;
+
+    const canvas = eraserCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        setUndoStack((prev) => [...prev.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+        setRedoStack([]);
+      }
+    }
+
+    setStatusMsg(`Applying clean preset (Cutoff: ${cutoffVal}, Choke: ${chokeVal}px)…`);
+    try {
+      const refinedBlob = await applyMatteRefinement(
+        baseBlob,
+        {
+          thresholdCutoff: cutoffVal,
+          edgeChoke: chokeVal,
+          featherRadius: featherVal,
+          contrastBoost: contrastVal,
+          deFringe: true,
+          removeStrayIslands: true,
+        },
+        exportFormat,
+        exportFormat === 'image/webp' ? 0.95 : 1
+      );
+      const newUrl = URL.createObjectURL(refinedBlob);
+      setImages((prev) =>
+        prev.map((img, idx) =>
+          idx === selectedIndex ? { ...img, resultUrl: newUrl, resultBlob: refinedBlob } : img
+        )
+      );
+      const canvas = eraserCanvasRef.current;
+      if (canvas && viewMode === 'eraser') {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const img = new Image();
+          img.onload = () => {
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+          };
+          img.src = newUrl;
+        }
+      }
+      setStatusMsg('Preset applied successfully!');
+    } catch (e) {
+      console.error(e);
+      setStatusMsg('Refinement failed.');
+    }
+  };
+
+  // Live refinement on slider interaction
+  const triggerLiveRefinement = (newOptions: Partial<MattingRefinementOptions>) => {
+    if (!currentItem || !(currentItem.rawBlob || currentItem.originalResultBlob)) return;
+    const baseBlob = currentItem.rawBlob || currentItem.originalResultBlob;
+    if (!baseBlob) return;
+
+    const opts: MattingRefinementOptions = {
+      thresholdCutoff,
+      edgeChoke,
+      featherRadius,
+      contrastBoost,
+      deFringe,
+      removeStrayIslands,
+      ...newOptions,
+    };
+
+    if (refinementTimeoutRef.current) clearTimeout(refinementTimeoutRef.current);
+    refinementTimeoutRef.current = setTimeout(async () => {
+      try {
+        const refinedBlob = await applyMatteRefinement(
+          baseBlob,
+          opts,
+          exportFormat,
+          exportFormat === 'image/webp' ? 0.95 : 1
+        );
+        const newUrl = URL.createObjectURL(refinedBlob);
+        setImages((prev) =>
+          prev.map((img, idx) =>
+            idx === selectedIndex ? { ...img, resultUrl: newUrl, resultBlob: refinedBlob } : img
+          )
+        );
+        const canvas = eraserCanvasRef.current;
+        if (canvas && viewMode === 'eraser') {
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            const img = new Image();
+            img.onload = () => {
+              canvas.width = img.naturalWidth;
+              canvas.height = img.naturalHeight;
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0);
+            };
+            img.src = newUrl;
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }, 45);
+  };
+
+  // Magic Wand Click-to-Purge Background Color
+  const handleWandPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    setUndoStack((prev) => [...prev.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+    setRedoStack([]);
+
+    const pt = getCanvasCoords(e);
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    purgeColorFromImageData(imgData, pt.x, pt.y, wandTolerance, wandContiguous);
+    ctx.putImageData(imgData, 0, 0);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const newUrl = URL.createObjectURL(blob);
+        setImages((prev) =>
+          prev.map((img, idx) =>
+            idx === selectedIndex ? { ...img, resultUrl: newUrl, resultBlob: blob } : img
+          )
+        );
+        setStatusMsg('Background color wiped with Magic Wand!');
+      }
+    }, exportFormat);
+  };
+
+  // Auto-Clear Corner & Border Background
+  const handleAutoPurgeCorners = () => {
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    setUndoStack((prev) => [...prev.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+    setRedoStack([]);
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    purgeCornersFromImageData(imgData, wandTolerance);
+    ctx.putImageData(imgData, 0, 0);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const newUrl = URL.createObjectURL(blob);
+        setImages((prev) =>
+          prev.map((img, idx) =>
+            idx === selectedIndex ? { ...img, resultUrl: newUrl, resultBlob: blob } : img
+          )
+        );
+        setStatusMsg('Cleared background from image corners and borders.');
+      }
+    }, exportFormat);
+  };
+
+  // One-Click Clean Remaining Background (Magic Purge)
+  const handlePurgeBackground = async () => {
+    applyPreset(85, 2.0, 0.5, 1.6);
+  };
+
+  // Eraser & Restore Brush helpers
+  const getCanvasCoords = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  // Restore Brush (paints back original pixels from un-removed photo)
+  const handleRestoreStroke = (
+    ctx: CanvasRenderingContext2D,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    canvasWidth: number,
+    canvasHeight: number,
+    realBrush: number
+  ) => {
+    if (!originalImageRef.current) return;
+    const orig = originalImageRef.current;
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dist = Math.hypot(dx, dy);
+    const steps = Math.max(1, Math.ceil(dist / Math.max(2, realBrush / 4)));
+
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const cx = from.x + dx * t;
+      const cy = from.y + dy * t;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, realBrush / 2, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.clearRect(cx - realBrush / 2, cy - realBrush / 2, realBrush, realBrush);
+      ctx.drawImage(orig, 0, 0, canvasWidth, canvasHeight);
+      ctx.restore();
+    }
+  };
+
+  const handleRestorePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    setUndoStack((prev) => [...prev.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+    setRedoStack([]);
+    isPaintingRef.current = true;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+    const pt = getCanvasCoords(e);
+    lastPointRef.current = pt;
+
+    const rect = canvas.getBoundingClientRect();
+    const realBrush = brushSize * (canvas.width / rect.width);
+    handleRestoreStroke(ctx, pt, pt, canvas.width, canvas.height, realBrush);
+  };
+
+  const handleRestorePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const pt = getCanvasCoords(e);
+
+    setBrushPos({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      visible: true,
+    });
+
+    if (!isPaintingRef.current || !lastPointRef.current) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    const realBrush = brushSize * (canvas.width / rect.width);
+    handleRestoreStroke(ctx, lastPointRef.current, pt, canvas.width, canvas.height, realBrush);
+    lastPointRef.current = pt;
+  };
+
+  // Eraser Brush (paints away unwanted background)
+  const handleEraserPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    setUndoStack((prev) => [...prev.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+    setRedoStack([]);
+    isPaintingRef.current = true;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+    const pt = getCanvasCoords(e);
+    lastPointRef.current = pt;
+
+    const rect = canvas.getBoundingClientRect();
+    const realBrush = brushSize * (canvas.width / rect.width);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, realBrush / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const handleEraserPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const pt = getCanvasCoords(e);
+
+    setBrushPos({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      visible: true,
+    });
+
+    if (!isPaintingRef.current || !lastPointRef.current) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    const realBrush = brushSize * (canvas.width / rect.width);
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = realBrush;
+
+    ctx.beginPath();
+    ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
+    ctx.lineTo(pt.x, pt.y);
+    ctx.stroke();
+    ctx.restore();
+
+    lastPointRef.current = pt;
+  };
+
+  const handleEraserPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isPaintingRef.current) return;
+    isPaintingRef.current = false;
+    lastPointRef.current = null;
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const newUrl = URL.createObjectURL(blob);
+        setImages((prev) =>
+          prev.map((img, idx) =>
+            idx === selectedIndex ? { ...img, resultUrl: newUrl, resultBlob: blob } : img
+          )
+        );
+      }
+    }, exportFormat);
+  };
+
+  // Undo and Redo handlers
+  const handleUndo = useCallback(() => {
+    if (!undoStack.length) return;
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    const current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    setRedoStack((prev) => [...prev.slice(-19), current]);
+
+    const lastState = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, -1));
+    ctx.putImageData(lastState, 0, 0);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const newUrl = URL.createObjectURL(blob);
+        setImages((prev) =>
+          prev.map((img, idx) =>
+            idx === selectedIndex ? { ...img, resultUrl: newUrl, resultBlob: blob } : img
+          )
+        );
+      }
+    }, exportFormat);
+  }, [undoStack, exportFormat, selectedIndex]);
+
+  const handleRedo = useCallback(() => {
+    if (!redoStack.length) return;
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    const current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    setUndoStack((prev) => [...prev.slice(-19), current]);
+
+    const nextState = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    ctx.putImageData(nextState, 0, 0);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const newUrl = URL.createObjectURL(blob);
+        setImages((prev) =>
+          prev.map((img, idx) =>
+            idx === selectedIndex ? { ...img, resultUrl: newUrl, resultBlob: blob } : img
+          )
+        );
+      }
+    }, exportFormat);
+  }, [redoStack, exportFormat, selectedIndex]);
+
+  // Restore Full Original Photo onto Canvas
+  const handleRestoreFullOriginal = () => {
+    if (!currentItem?.previewUrl) return;
+    const canvas = eraserCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    setUndoStack((prev) => [...prev.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+    setRedoStack([]);
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const newUrl = URL.createObjectURL(blob);
+          setImages((prev) =>
+            prev.map((item, idx) =>
+              idx === selectedIndex ? { ...item, resultUrl: newUrl, resultBlob: blob } : item
+            )
+          );
+          setStatusMsg('Full original photo restored onto canvas.');
+        }
+      }, exportFormat);
+    };
+    img.src = currentItem.previewUrl;
+  };
+
+  // Reset back to AI Cutout
+  const handleResetToAiOriginal = () => {
+    const baseBlob = currentItem?.rawBlob || currentItem?.originalResultBlob;
+    if (!baseBlob) return;
+    const canvas = eraserCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        setUndoStack((prev) => [...prev.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+        setRedoStack([]);
+      }
+    }
+    const newUrl = URL.createObjectURL(baseBlob);
+    setImages((prev) =>
+      prev.map((img, idx) =>
+        idx === selectedIndex
+          ? { ...img, resultUrl: newUrl, resultBlob: baseBlob }
+          : img
+      )
+    );
+
+    if (canvas && viewMode === 'eraser') {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+        };
+        img.src = newUrl;
+      }
+    }
+    setStatusMsg('Reset back to initial AI cutout.');
+  };
+
+  // Global Keyboard Shortcuts (Ctrl+Z for Undo, Ctrl+Y or Ctrl+Shift+Z for Redo)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modifier = isMac ? e.metaKey : e.ctrlKey;
+
+      if (modifier && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if (modifier && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -622,47 +1166,128 @@ export function BgRemover() {
 
                 {refineEdges && (
                   <>
+                    {/* Quick Presets */}
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>Matte Cleanup Presets:</span>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className={`bg-preset-btn ${thresholdCutoff === 45 && edgeChoke === 1.0 ? 'active' : ''}`}
+                          onClick={() => applyPreset(45, 1.0, 0.8, 1.4)}
+                        >
+                          Clean Cut (Default)
+                        </button>
+                        <button
+                          type="button"
+                          className={`bg-preset-btn ${thresholdCutoff >= 80 && thresholdCutoff < 120 ? 'active' : ''}`}
+                          onClick={() => applyPreset(85, 2.0, 0.5, 1.6)}
+                        >
+                          Aggressive (Purge Shadows)
+                        </button>
+                        <button
+                          type="button"
+                          className={`bg-preset-btn ${thresholdCutoff >= 120 ? 'active' : ''}`}
+                          onClick={() => applyPreset(140, 3.0, 0.3, 1.8)}
+                          style={{ borderColor: 'var(--orange-primary)' }}
+                        >
+                          Extreme Purge (Remove All)
+                        </button>
+                        <button
+                          type="button"
+                          className={`bg-preset-btn ${thresholdCutoff < 30 ? 'active' : ''}`}
+                          onClick={() => applyPreset(20, 0.2, 1.5, 1.1)}
+                        >
+                          Soft Hair / Detail
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Cutoff Threshold */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', marginBottom: '4px' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Background Cutoff Threshold:</span>
+                        <span className="mono" style={{ color: 'var(--mint)' }}>{thresholdCutoff}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="220"
+                        step="1"
+                        value={thresholdCutoff}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setThresholdCutoff(val);
+                          triggerLiveRefinement({ thresholdCutoff: val });
+                        }}
+                      />
+                      <small style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                        Higher values aggressively wipe leftover background and floor shadows in real time.
+                      </small>
+                    </div>
+
+                    {/* Edge Choke */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', marginBottom: '4px' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Edge Choke (Fringe Remover):</span>
+                        <span className="mono" style={{ color: 'var(--mint)' }}>{edgeChoke}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="5"
+                        step="0.5"
+                        value={edgeChoke}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setEdgeChoke(val);
+                          triggerLiveRefinement({ edgeChoke: val });
+                        }}
+                      />
+                      <small style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                        Erodes 1-5px border halo to erase background traces hugging the subject.
+                      </small>
+                    </div>
+
                     {/* Feather */}
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', marginBottom: '4px' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Edge Feathering (Anti-Aliasing):</span>
+                        <span style={{ color: 'var(--text-secondary)' }}>Edge Feathering (Smoothing):</span>
                         <span className="mono" style={{ color: 'var(--mint)' }}>{featherRadius}px</span>
                       </div>
                       <input
                         type="range"
                         min="0"
                         max="4"
-                        step="0.5"
+                        step="0.2"
                         value={featherRadius}
-                        onChange={(e) => setFeatherRadius(parseFloat(e.target.value))}
-                      />
-                    </div>
-
-                    {/* Threshold */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', marginBottom: '4px' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Alpha Noise Cutoff:</span>
-                        <span className="mono" style={{ color: 'var(--mint)' }}>{thresholdCutoff}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="35"
-                        step="1"
-                        value={thresholdCutoff}
-                        onChange={(e) => setThresholdCutoff(parseInt(e.target.value))}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setFeatherRadius(val);
+                          triggerLiveRefinement({ featherRadius: val });
+                        }}
                       />
                     </div>
 
                     {/* De-fringe */}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', margin: 0 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', margin: 0 }}>
                       <input
                         type="checkbox"
                         checked={deFringe}
                         onChange={(e) => setDeFringe(e.target.checked)}
                         style={{ accentColor: 'var(--mint)' }}
                       />
-                      <span>De-fringe (Neutralize background color halos)</span>
+                      <span>De-fringe (Neutralize background color bleed)</span>
+                    </label>
+
+                    {/* Stray Islands */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={removeStrayIslands}
+                        onChange={(e) => setRemoveStrayIslands(e.target.checked)}
+                        style={{ accentColor: 'var(--mint)' }}
+                      />
+                      <span>Remove isolated background specks & crumbs</span>
                     </label>
                   </>
                 )}
@@ -879,22 +1504,92 @@ export function BgRemover() {
                     </label>
                   </div>
 
-                  {/* Split compare toggle & Download */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {/* Mode switcher, Undo/Redo/Restore, Magic Purge & Download */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     {currentItem.resultUrl && (
-                      <button
-                        className={`tab-btn${isComparing ? ' active' : ''}`}
-                        onClick={() => setIsComparing(!isComparing)}
-                        style={{ fontSize: '11px', padding: '4px 10px' }}
-                      >
-                        <Eye size={12} /> {isComparing ? 'Split Slider' : 'Result Only'}
-                      </button>
+                      <div className="tabs" style={{ margin: 0 }}>
+                        <button
+                          className={`tab-btn${viewMode === 'compare' ? ' active' : ''}`}
+                          onClick={() => setViewMode('compare')}
+                          style={{ fontSize: '11px', padding: '4px 9px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="Split before & after comparison slider"
+                        >
+                          <Eye size={12} /> Split
+                        </button>
+                        <button
+                          className={`tab-btn${viewMode === 'result' ? ' active' : ''}`}
+                          onClick={() => setViewMode('result')}
+                          style={{ fontSize: '11px', padding: '4px 9px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="View transparent cutout result"
+                        >
+                          <ImageIcon size={12} /> Result
+                        </button>
+                        <button
+                          className={`tab-btn${viewMode === 'eraser' ? ' active' : ''}`}
+                          onClick={() => setViewMode('eraser')}
+                          style={{ fontSize: '11px', padding: '4px 9px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="Touch-up tools: Restore Brush, Eraser Brush & Magic Wand"
+                        >
+                          <Eraser size={12} /> Touch-up
+                        </button>
+                      </div>
                     )}
+
+                    {currentItem.resultUrl && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleUndo}
+                          disabled={undoStack.length === 0}
+                          style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="Undo last action (Ctrl+Z / Cmd+Z)"
+                        >
+                          <RotateCcw size={12} /> Undo {undoStack.length > 0 ? `(${undoStack.length})` : ''}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleRedo}
+                          disabled={redoStack.length === 0}
+                          style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="Redo action (Ctrl+Y / Cmd+Shift+Z)"
+                        >
+                          <RotateCw size={12} /> Redo {redoStack.length > 0 ? `(${redoStack.length})` : ''}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleRestoreFullOriginal}
+                          style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="Restore complete original photo onto canvas"
+                        >
+                          <RefreshCw size={12} /> Restore Original
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => applyPreset(85, 2.0, 0.5, 1.6)}
+                          title="Aggressively purge leftover shadows and background haze"
+                          style={{ fontSize: '11px', padding: '4px 9px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Sparkles size={12} /> Purge Shadows
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => applyPreset(140, 3.0, 0.3, 1.8)}
+                          title="High cutoff to eliminate all stubborn background areas"
+                          style={{ fontSize: '11px', padding: '4px 9px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Eraser size={12} /> Extreme Purge
+                        </button>
+                      </>
+                    )}
+
                     {currentItem.resultUrl && (
                       <button
                         className="btn btn-primary btn-sm"
                         onClick={() => downloadSingle(currentItem)}
-                        style={{ fontSize: '12px' }}
+                        style={{ fontSize: '11.5px', padding: '4px 10px' }}
                       >
                         <Download size={13} /> Download
                       </button>
@@ -902,13 +1597,189 @@ export function BgRemover() {
                   </div>
                 </div>
 
+                {/* Helpful Residual Background Advice Banner */}
+                {currentItem.resultUrl && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '8px',
+                    background: 'rgba(255, 90, 9, 0.08)',
+                    border: '1px solid rgba(255, 90, 9, 0.28)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    color: 'var(--text-primary)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Sparkles size={14} style={{ color: 'var(--mint)', flexShrink: 0 }} />
+                      <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                        Need adjustments? Use <strong>Restore Brush</strong> to paint back cut subject details, <strong>Eraser / Magic Wand</strong> to wipe background, or <strong>Undo / Redo</strong> anytime.
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => { setViewMode('eraser'); setTouchTool('restore'); }}
+                        style={{ fontSize: '11px', padding: '3px 8px', gap: '4px', borderColor: '#06b6d4', color: '#06b6d4' }}
+                        title="Switch to Touch-up and select Restore Brush"
+                      >
+                        <Paintbrush size={11} /> Restore Brush
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => { setViewMode('eraser'); setTouchTool('wand'); }}
+                        style={{ fontSize: '11px', padding: '3px 8px', gap: '4px' }}
+                        title="Switch to Touch-up and select Magic Wand"
+                      >
+                        <Wand size={11} /> Magic Wand
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Touch-up Eraser & Restore Sub-bar */}
+                {currentItem.resultUrl && viewMode === 'eraser' && (
+                  <div className="bg-eraser-toolbar">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <div className="tabs" style={{ margin: 0 }}>
+                        <button
+                          type="button"
+                          className={`tab-btn${touchTool === 'eraser' ? ' active' : ''}`}
+                          onClick={() => setTouchTool('eraser')}
+                          style={{ fontSize: '11px', padding: '3px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="Eraser Brush: wipe unwanted residual background"
+                        >
+                          <Eraser size={12} /> Eraser Brush
+                        </button>
+                        <button
+                          type="button"
+                          className={`tab-btn${touchTool === 'restore' ? ' active' : ''}`}
+                          onClick={() => setTouchTool('restore')}
+                          style={{ fontSize: '11px', padding: '3px 8px', display: 'flex', alignItems: 'center', gap: '4px', color: touchTool === 'restore' ? '#06b6d4' : undefined }}
+                          title="Restore Brush: paint back original pixels (hair, clothes, limbs) accidentally cut by AI"
+                        >
+                          <Paintbrush size={12} /> Restore Brush
+                        </button>
+                        <button
+                          type="button"
+                          className={`tab-btn${touchTool === 'wand' ? ' active' : ''}`}
+                          onClick={() => setTouchTool('wand')}
+                          style={{ fontSize: '11px', padding: '3px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="Click on any leftover background color to erase it"
+                        >
+                          <Wand size={12} /> Magic Wand
+                        </button>
+                      </div>
+
+                      {touchTool === 'eraser' || touchTool === 'restore' ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {touchTool === 'restore' ? 'Restore Size' : 'Eraser Size'}
+                          </span>
+                          <input
+                            type="range"
+                            min={4}
+                            max={140}
+                            value={brushSize}
+                            onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                            style={{ width: '80px' }}
+                          />
+                          <span className="mono" style={{ fontSize: '11px', color: 'var(--text-primary)', minWidth: '32px' }}>
+                            {brushSize}px
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Tolerance</span>
+                            <input
+                              type="range"
+                              min={5}
+                              max={90}
+                              value={wandTolerance}
+                              onChange={(e) => setWandTolerance(parseInt(e.target.value))}
+                              style={{ width: '80px' }}
+                            />
+                            <span className="mono" style={{ fontSize: '11px', color: 'var(--text-primary)', minWidth: '24px' }}>
+                              {wandTolerance}
+                            </span>
+                          </div>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-secondary)', cursor: 'pointer', margin: 0 }}>
+                            <input
+                              type="checkbox"
+                              checked={wandContiguous}
+                              onChange={(e) => setWandContiguous(e.target.checked)}
+                              style={{ accentColor: 'var(--mint)' }}
+                            />
+                            Contiguous
+                          </label>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleAutoPurgeCorners}
+                        style={{ fontSize: '11px', padding: '3px 8px', gap: '4px' }}
+                        title="Auto-detect & erase leftover background from all 4 corners and borders"
+                      >
+                        <Trash size={12} /> Clear Borders
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleUndo}
+                        disabled={undoStack.length === 0}
+                        style={{ fontSize: '11px', padding: '3px 8px', gap: '4px' }}
+                        title="Undo last action (Ctrl+Z / Cmd+Z)"
+                      >
+                        <RotateCcw size={12} /> Undo {undoStack.length > 0 ? `(${undoStack.length})` : ''}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleRedo}
+                        disabled={redoStack.length === 0}
+                        style={{ fontSize: '11px', padding: '3px 8px', gap: '4px' }}
+                        title="Redo action (Ctrl+Y / Cmd+Shift+Z)"
+                      >
+                        <RotateCw size={12} /> Redo {redoStack.length > 0 ? `(${redoStack.length})` : ''}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleRestoreFullOriginal}
+                        style={{ fontSize: '11px', padding: '3px 8px', gap: '4px', borderColor: '#0ea5e9' }}
+                        title="Restore complete original photo onto canvas"
+                      >
+                        <RefreshCw size={12} /> Restore Full
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleResetToAiOriginal}
+                        style={{ fontSize: '11px', padding: '3px 8px', gap: '4px' }}
+                        title="Reset touch-up modifications back to AI cutout"
+                      >
+                        <RefreshCw size={12} /> Reset Cutout
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Stage Canvas / Split Compare Viewport */}
                 <div
                   ref={compareContainerRef}
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  onPointerCancel={handlePointerUp}
+                  onPointerDown={viewMode === 'compare' ? handlePointerDown : undefined}
+                  onPointerMove={viewMode === 'compare' ? handlePointerMove : undefined}
+                  onPointerUp={viewMode === 'compare' ? handlePointerUp : undefined}
+                  onPointerCancel={viewMode === 'compare' ? handlePointerUp : undefined}
                   style={{
                     position: 'relative',
                     flex: 1,
@@ -918,7 +1789,7 @@ export function BgRemover() {
                     border: '1px solid var(--border)',
                     userSelect: 'none',
                     touchAction: 'none',
-                    cursor: currentItem.resultUrl && isComparing ? 'ew-resize' : 'default',
+                    cursor: currentItem.resultUrl && viewMode === 'compare' ? 'ew-resize' : viewMode === 'eraser' ? 'crosshair' : 'default',
                     background:
                       backdrop === 'checker'
                         ? 'repeating-conic-gradient(rgba(255,255,255,0.06) 0% 25%, rgba(255,255,255,0.01) 0% 50%) 0 0 / 14px 14px'
@@ -933,8 +1804,120 @@ export function BgRemover() {
                         : '#141414',
                   }}
                 >
-                  {/* If result is available and comparing */}
-                  {currentItem.resultUrl && isComparing ? (
+                  {/* Persistent touch-up canvas: kept active whenever resultUrl exists so Undo/Redo & Restore are always ready */}
+                  {currentItem.resultUrl && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: viewMode === 'eraser' ? 'flex' : 'none',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                      }}
+                      onPointerLeave={() => setBrushPos((p) => ({ ...p, visible: false }))}
+                    >
+                      <canvas
+                        ref={eraserCanvasRef}
+                        className="bg-eraser-canvas"
+                        onPointerDown={(e) => {
+                          if (touchTool === 'wand') {
+                            handleWandPointerDown(e);
+                          } else if (touchTool === 'restore') {
+                            handleRestorePointerDown(e);
+                          } else {
+                            handleEraserPointerDown(e);
+                          }
+                        }}
+                        onPointerMove={(e) => {
+                          if (touchTool === 'restore') {
+                            handleRestorePointerMove(e);
+                          } else if (touchTool === 'eraser') {
+                            handleEraserPointerMove(e);
+                          } else {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setBrushPos({
+                              x: e.clientX - rect.left,
+                              y: e.clientY - rect.top,
+                              visible: true,
+                            });
+                          }
+                        }}
+                        onPointerUp={(e) => {
+                          if (touchTool === 'eraser' || touchTool === 'restore') {
+                            handleEraserPointerUp(e);
+                          }
+                        }}
+                        onPointerCancel={(e) => {
+                          if (touchTool === 'eraser' || touchTool === 'restore') {
+                            handleEraserPointerUp(e);
+                          }
+                        }}
+                      />
+                      {/* Floating circular brush or crosshair indicator */}
+                      {brushPos.visible && (
+                        touchTool === 'eraser' ? (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: brushPos.x,
+                              top: brushPos.y,
+                              width: brushSize,
+                              height: brushSize,
+                              borderRadius: '50%',
+                              border: '2px solid rgba(255, 90, 9, 0.95)',
+                              background: 'rgba(255, 90, 9, 0.15)',
+                              transform: 'translate(-50%, -50%)',
+                              pointerEvents: 'none',
+                              zIndex: 30,
+                              boxShadow: '0 0 6px rgba(0,0,0,0.6)',
+                            }}
+                          />
+                        ) : touchTool === 'restore' ? (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: brushPos.x,
+                              top: brushPos.y,
+                              width: brushSize,
+                              height: brushSize,
+                              borderRadius: '50%',
+                              border: '2px solid #06b6d4',
+                              background: 'rgba(6, 182, 212, 0.2)',
+                              transform: 'translate(-50%, -50%)',
+                              pointerEvents: 'none',
+                              zIndex: 30,
+                              boxShadow: '0 0 8px rgba(6, 182, 212, 0.5)',
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: brushPos.x,
+                              top: brushPos.y,
+                              width: 20,
+                              height: 20,
+                              borderRadius: '50%',
+                              border: '2px solid #00e676',
+                              background: 'rgba(0, 230, 118, 0.25)',
+                              transform: 'translate(-50%, -50%)',
+                              pointerEvents: 'none',
+                              zIndex: 30,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#00e676' }} />
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+
+                  {/* If result is available and in COMPARE mode */}
+                  {currentItem.resultUrl && viewMode === 'compare' ? (
                     <>
                       {/* Under layer: Transparent Cutout on the selected backdrop */}
                       <div
@@ -1069,7 +2052,7 @@ export function BgRemover() {
                         aria-label="Split comparison slider"
                       />
                     </>
-                  ) : currentItem.resultUrl ? (
+                  ) : currentItem.resultUrl && viewMode === 'result' ? (
                     /* Show result only */
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <img
@@ -1079,7 +2062,7 @@ export function BgRemover() {
                         draggable={false}
                       />
                     </div>
-                  ) : (
+                  ) : !currentItem.resultUrl ? (
                     /* Show original only before processing */
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <img
@@ -1089,7 +2072,7 @@ export function BgRemover() {
                         draggable={false}
                       />
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Diagnostics / Speed report */}

@@ -44,7 +44,7 @@ const noStore = { 'Cache-Control': 'no-store, private' };
 
 export async function GET() {
   if (!redisConfig()) {
-    return NextResponse.json({ available: false, reason: 'not_configured' }, { status: 503, headers: noStore });
+    return NextResponse.json({ available: false, reason: 'not_configured' }, { status: 200, headers: noStore });
   }
   try {
     const [visitors, downloads] = await redis([
@@ -58,13 +58,13 @@ export async function GET() {
       definitions: { visitors: 'Approximate unique browsers', downloads: 'Download actions' },
     }, { headers: noStore });
   } catch {
-    return NextResponse.json({ available: false, reason: 'unavailable' }, { status: 503, headers: noStore });
+    return NextResponse.json({ available: false, reason: 'unavailable' }, { status: 200, headers: noStore });
   }
 }
 
 export async function POST(request: NextRequest) {
   if (!redisConfig()) {
-    return NextResponse.json({ available: false, reason: 'not_configured' }, { status: 503, headers: noStore });
+    return NextResponse.json({ available: false, recorded: false, reason: 'not_configured' }, { status: 200, headers: noStore });
   }
 
   const origin = request.headers.get('origin');

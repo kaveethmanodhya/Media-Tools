@@ -7,9 +7,12 @@ export type BgRemovalModel = 'isnet' | 'isnet_fp16' | 'isnet_quint8';
 export type BgRemovalDevice = 'gpu' | 'cpu';
 
 export interface MattingRefinementOptions {
-  featherRadius: number; // 0 to 5 px
-  thresholdCutoff: number; // 0 to 50
+  featherRadius: number; // 0 to 5 px (edge smoothing)
+  thresholdCutoff: number; // 0 to 120 (background alpha cutoff threshold)
   deFringe: boolean; // remove background color halos
+  edgeChoke?: number; // 0 to 3 px (erodes stubborn 1-2px background contour fringe)
+  contrastBoost?: number; // 1 to 2.2 (sharpens alpha boundary to eliminate hazy background)
+  removeStrayIslands?: boolean; // cleans isolated floating background noise blobs
 }
 
 export interface BgRemovalOptions {
@@ -129,25 +132,84 @@ export function refineMatteImageData(
   imageData: ImageData,
   options: MattingRefinementOptions
 ): ImageData {
-  const { featherRadius, thresholdCutoff, deFringe } = options;
+  const {
+    featherRadius = 0.8,
+    thresholdCutoff = 35,
+    deFringe = true,
+    edgeChoke = 1,
+    contrastBoost = 1.35,
+    removeStrayIslands = true
+  } = options;
   const width = imageData.width;
   const height = imageData.height;
   const data = imageData.data;
   const totalPixels = width * height;
 
-  // 1. Thresholding: Clean up faint ghosting
-  if (thresholdCutoff > 0) {
+  // 1. Adaptive Sigmoid / Contrast Thresholding
+  // Purges faint shadows, floor reflections, wall noise, and semi-transparent halos
+  const cutoff = Math.max(0, Math.min(240, thresholdCutoff));
+  const boost = contrastBoost || 1.4;
+
+  if (cutoff > 0) {
+    const range = 255 - cutoff;
     for (let i = 3; i < data.length; i += 4) {
       const a = data[i];
-      if (a > 0 && a < thresholdCutoff) {
+      if (a <= cutoff) {
         data[i] = 0;
-      } else if (a > 248) {
-        data[i] = 255;
+      } else {
+        // Smoothly scale remaining opacity from 0 to 255 with contrast curve
+        const norm = (a - cutoff) / range;
+        data[i] = Math.round(Math.pow(norm, boost) * 255);
       }
     }
   }
 
-  // 2. De-fringing: Fix color halo on semi-transparent silhouette borders
+  // 2. Edge Choke (Morphological erosion of stubborn 1-5px background border fringe)
+  const choke = Math.min(5, Math.max(0, Math.round(edgeChoke)));
+  if (choke > 0) {
+    const alphaCopy = new Uint8Array(totalPixels);
+    for (let i = 0; i < totalPixels; i++) {
+      alphaCopy[i] = data[i * 4 + 3];
+    }
+    for (let y = choke; y < height - choke; y++) {
+      const rowOffset = y * width;
+      for (let x = choke; x < width - choke; x++) {
+        const pIdx = rowOffset + x;
+        if (alphaCopy[pIdx] > 0) {
+          let minA = alphaCopy[pIdx];
+          for (let dy = -choke; dy <= choke; dy++) {
+            const nRow = (y + dy) * width;
+            for (let dx = -choke; dx <= choke; dx++) {
+              if (dx * dx + dy * dy <= choke * choke) {
+                const neighborA = alphaCopy[nRow + (x + dx)];
+                if (neighborA < minA) minA = neighborA;
+              }
+            }
+          }
+          data[pIdx * 4 + 3] = minA;
+        }
+      }
+    }
+  }
+
+  // 3. Remove small stray boundary noise and floating background crumbs
+  if (removeStrayIslands) {
+    const borderX = Math.round(width * 0.05);
+    const borderY = Math.round(height * 0.05);
+    for (let y = 0; y < height; y++) {
+      const isBorderY = y < borderY || y > height - borderY;
+      const rowOffset = y * width;
+      for (let x = 0; x < width; x++) {
+        const isBorderX = x < borderX || x > width - borderX;
+        const pIdx = (rowOffset + x) * 4;
+        if (data[pIdx + 3] > 0 && data[pIdx + 3] < 210 && (isBorderX || isBorderY)) {
+          data[pIdx + 3] = 0;
+        }
+      }
+    }
+  }
+
+  // 4. De-fringing: Fix color halo on semi-transparent silhouette borders
   if (deFringe) {
     const originalData = new Uint8ClampedArray(data);
     for (let y = 1; y < height - 1; y++) {
@@ -165,7 +227,7 @@ export function refineMatteImageData(
             for (let dx = -1; dx <= 1; dx++) {
               if (dx === 0 && dy === 0) continue;
               const nIdx = (nRow + (x + dx)) * 4;
-              if (originalData[nIdx + 3] >= 220) {
+              if (originalData[nIdx + 3] >= 210) {
                 sumR += originalData[nIdx];
                 sumG += originalData[nIdx + 1];
                 sumB += originalData[nIdx + 2];
@@ -178,7 +240,7 @@ export function refineMatteImageData(
             const fgR = sumR / count;
             const fgG = sumG / count;
             const fgB = sumB / count;
-            const blendRatio = (255 - alpha) / 255 * 0.85;
+            const blendRatio = ((255 - alpha) / 255) * 0.9;
             data[idx] = Math.round(data[idx] * (1 - blendRatio) + fgR * blendRatio);
             data[idx + 1] = Math.round(data[idx + 1] * (1 - blendRatio) + fgG * blendRatio);
             data[idx + 2] = Math.round(data[idx + 2] * (1 - blendRatio) + fgB * blendRatio);
@@ -188,7 +250,7 @@ export function refineMatteImageData(
     }
   }
 
-  // 3. Feathering / Edge Anti-Aliasing
+  // 5. Feathering / Edge Anti-Aliasing (applied softly to smooth real boundaries)
   if (featherRadius > 0) {
     const alphaCopy = new Uint8Array(totalPixels);
     for (let i = 0; i < totalPixels; i++) {
@@ -202,7 +264,6 @@ export function refineMatteImageData(
         const pIdx = rowOffset + x;
         const curA = alphaCopy[pIdx];
 
-        // Only smooth border transition pixels
         if (curA > 0 && curA < 255) {
           let sumA = 0;
           let weightSum = 0;
@@ -220,6 +281,110 @@ export function refineMatteImageData(
         }
       }
     }
+  }
+
+  return imageData;
+}
+
+/**
+ * Magic Wand Color Key: Purge matching background color starting from target coordinates or across the image.
+ */
+export function purgeColorFromImageData(
+  imageData: ImageData,
+  targetX: number,
+  targetY: number,
+  tolerance: number = 32,
+  contiguous: boolean = true
+): ImageData {
+  const width = imageData.width;
+  const height = imageData.height;
+  const data = imageData.data;
+  const totalPixels = width * height;
+
+  const startX = Math.max(0, Math.min(width - 1, Math.round(targetX)));
+  const startY = Math.max(0, Math.min(height - 1, Math.round(targetY)));
+  const targetIdx = (startY * width + startX) * 4;
+
+  const targetR = data[targetIdx];
+  const targetG = data[targetIdx + 1];
+  const targetB = data[targetIdx + 2];
+  const tolSq = tolerance * tolerance * 3;
+
+  if (contiguous) {
+    const visited = new Uint8Array(totalPixels);
+    const queue = new Int32Array(totalPixels);
+    let head = 0;
+    let tail = 0;
+
+    const startIdx = startY * width + startX;
+    queue[tail++] = startIdx;
+    visited[startIdx] = 1;
+
+    while (head < tail) {
+      const curr = queue[head++];
+      const cx = curr % width;
+      const pIdx = curr * 4;
+
+      data[pIdx + 3] = 0; // Turn alpha transparent
+
+      const neighbors = [
+        cx > 0 ? curr - 1 : -1,
+        cx < width - 1 ? curr + 1 : -1,
+        curr >= width ? curr - width : -1,
+        curr + width < totalPixels ? curr + width : -1,
+      ];
+
+      for (let n of neighbors) {
+        if (n >= 0 && !visited[n]) {
+          visited[n] = 1;
+          const nIdx = n * 4;
+          if (data[nIdx + 3] > 0) {
+            const dr = data[nIdx] - targetR;
+            const dg = data[nIdx + 1] - targetG;
+            const db = data[nIdx + 2] - targetB;
+            if (dr * dr + dg * dg + db * db <= tolSq) {
+              queue[tail++] = n;
+            }
+          }
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < totalPixels; i++) {
+      const pIdx = i * 4;
+      if (data[pIdx + 3] > 0) {
+        const dr = data[pIdx] - targetR;
+        const dg = data[pIdx + 1] - targetG;
+        const db = data[pIdx + 2] - targetB;
+        if (dr * dr + dg * dg + db * db <= tolSq) {
+          data[pIdx + 3] = 0;
+        }
+      }
+    }
+  }
+
+  return imageData;
+}
+
+/**
+ * Flood-purge residual background touching the four corners and perimeter of the image.
+ */
+export function purgeCornersFromImageData(
+  imageData: ImageData,
+  tolerance: number = 40
+): ImageData {
+  const width = imageData.width;
+  const height = imageData.height;
+  const corners = [
+    { x: 0, y: 0 },
+    { x: width - 1, y: 0 },
+    { x: 0, y: height - 1 },
+    { x: width - 1, y: height - 1 },
+    { x: Math.floor(width / 2), y: 0 },
+  ];
+
+  for (const corner of corners) {
+    purgeColorFromImageData(imageData, corner.x, corner.y, tolerance, true);
   }
 
   return imageData;
@@ -277,6 +442,7 @@ export async function removeImageBackground(
   options: BgRemovalOptions = {}
 ): Promise<{
   blob: Blob;
+  rawBlob: Blob;
   width: number;
   height: number;
   deviceUsed: string;
@@ -291,9 +457,12 @@ export async function removeImageBackground(
     maxDimension = 0,
     refineEdges = true,
     refinement = {
-      featherRadius: 1,
-      thresholdCutoff: 12,
+      featherRadius: 0.8,
+      thresholdCutoff: 45,
       deFringe: true,
+      edgeChoke: 1.0,
+      contrastBoost: 1.4,
+      removeStrayIslands: true,
     },
     onProgress,
   } = options;
@@ -315,30 +484,50 @@ export async function removeImageBackground(
 
   onProgress?.(30, effectiveDevice === 'gpu' ? 'Running on GPU (WebGPU accelerated)…' : 'Running on CPU (Multi-threaded)…');
 
-  const rawResultBlob = await removeBackground(inputSource as any, {
-    device: effectiveDevice,
-    model: model,
-    proxyToWorker: effectiveDevice === 'gpu',
-    output: {
-      format: 'image/png', // produce lossless PNG first for matting
-      quality: 1,
-    },
-    progress: (key: string, current: number, total: number) => {
-      if (key === 'compute:inference' && total > 0) {
-        const pct = Math.min(90, 30 + Math.round((current / total) * 55));
-        onProgress?.(pct, `AI Segmenting: ${Math.round((current / total) * 100)}%`);
-      }
-    },
-  });
+  const publicPath = 'https://staticimgly.com/@imgly/background-removal-data/1.7.0/dist/';
+  let rawResultBlob: Blob;
+
+  const runInference = async (targetDevice: BgRemovalDevice) => {
+    return await removeBackground(inputSource as any, {
+      publicPath,
+      device: targetDevice,
+      model,
+      proxyToWorker: false,
+      output: {
+        format: 'image/png',
+        quality: 1,
+      },
+      progress: (key: string, current: number, total: number) => {
+        if (key === 'compute:inference' && total > 0) {
+          const pct = Math.min(90, 30 + Math.round((current / total) * 55));
+          onProgress?.(pct, `AI Segmenting: ${Math.round((current / total) * 100)}%`);
+        }
+      },
+    });
+  };
+
+  try {
+    rawResultBlob = await runInference(effectiveDevice);
+  } catch (err) {
+    if (effectiveDevice === 'gpu') {
+      onProgress?.(25, 'WebGPU unavailable on this system, running with CPU fallback…');
+      rawResultBlob = await runInference('cpu');
+    } else {
+      throw err;
+    }
+  }
 
   onProgress?.(90, 'Refining edge contours and alpha matte…');
 
   let finalBlob = rawResultBlob;
   if (refineEdges) {
     const fullRefinement: MattingRefinementOptions = {
-      featherRadius: refinement.featherRadius ?? 1,
-      thresholdCutoff: refinement.thresholdCutoff ?? 12,
+      featherRadius: refinement.featherRadius ?? 0.8,
+      thresholdCutoff: refinement.thresholdCutoff ?? 45,
       deFringe: refinement.deFringe ?? true,
+      edgeChoke: refinement.edgeChoke ?? 1.0,
+      contrastBoost: refinement.contrastBoost ?? 1.4,
+      removeStrayIslands: refinement.removeStrayIslands ?? true,
     };
     finalBlob = await applyMatteRefinement(rawResultBlob, fullRefinement, format, quality);
   } else if (format === 'image/webp') {
@@ -351,6 +540,7 @@ export async function removeImageBackground(
 
   return {
     blob: finalBlob,
+    rawBlob: rawResultBlob,
     width: preprocessed.width,
     height: preprocessed.height,
     deviceUsed: effectiveDevice === 'gpu' ? 'WebGPU (Hardware Accelerated)' : 'CPU (WebAssembly)',
