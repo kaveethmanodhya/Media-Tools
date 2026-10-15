@@ -73,7 +73,17 @@ export function Navbar() {
             const SectionIcon = section.icon;
             const active = section.items.some(item => item.href === pathname);
             return <details className="mt-nav-dropdown" key={section.title}>
-              <summary className={'mt-nav-trigger' + (active ? ' active' : '')}>
+              <summary
+                className={'mt-nav-trigger' + (active ? ' active' : '')}
+                onClick={event => {
+                  const currentDropdown = event.currentTarget.closest('details');
+                  event.currentTarget.closest('nav')
+                    ?.querySelectorAll<HTMLDetailsElement>('.mt-nav-dropdown[open]')
+                    .forEach(dropdown => {
+                      if (dropdown !== currentDropdown) dropdown.open = false;
+                    });
+                }}
+              >
                 <SectionIcon size={16}/>
                 {section.title}
                 <ChevronDown size={13} className="mt-nav-chevron"/>
