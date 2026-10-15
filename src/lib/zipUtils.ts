@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { recordDownload } from './usageClient';
 import { ExtractedFrame } from './videoUtils';
 
 export interface ZipOptions {
@@ -51,6 +52,7 @@ export async function downloadFramesAsZip(
   a.download = `${subfolder}.zip`;
   document.body.appendChild(a);
   a.click();
+  recordDownload();
   document.body.removeChild(a);
 
   setTimeout(() => URL.revokeObjectURL(url), 1500);

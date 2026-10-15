@@ -1,5 +1,6 @@
 'use client';
 
+import { recordDownload } from '@/lib/usageClient';
 import React, { useState, useRef, useCallback } from 'react';
 import imageCompression from 'browser-image-compression';
 import {
@@ -278,6 +279,7 @@ export function BulkImageConverter() {
     a.href = url;
     a.download = 'converted_images.zip';
     a.click();
+    recordDownload();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
@@ -288,6 +290,7 @@ export function BulkImageConverter() {
     a.href = img.outputUrl;
     a.download = `${base}.${FORMAT_EXTS[format]}`;
     a.click();
+    recordDownload();
   };
 
   const reset = () => {

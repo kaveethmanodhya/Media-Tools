@@ -63,6 +63,29 @@ Further responsive control alignment, closing previously opened navigation dropd
 
 The table below lists tools present in the repository's `main` branch. Deployment timing may differ from the latest source code.
 
+## Public Visitor & Download Counters (Setup Required)
+
+The homepage can show two shared live statistics:
+
+- **Total Visitors**: approximate distinct browsers recorded via a first-party cookie and Redis HyperLogLog. This is **not** a count of people or accounts.
+- **Total Downloads**: completed download-button initiation actions recorded across the eleven media tools, including ZIP downloads. A ZIP counts as **one action**, even when it includes multiple files.
+
+Tracking begins only **after** Redis is configured and the feature is deployed; previously unrecorded visits/downloads cannot be recovered. These counts are approximate and may be affected by blocked scripts, disabled cookies, privacy tools, automated traffic, or interrupted requests.
+
+### Connect database storage
+
+1. Create a Redis database in **Upstash** and obtain its **REST URL** and **REST Token** (or use a compatible existing Vercel Redis integration).
+2. In Vercel, open the MediaTools project, then go to **Settings → Environment Variables** and add:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+3. Redeploy the project after saving variables.
+4. Visit your homepage, then verify `/api/usage` returns `available: true` with numeric values. Test downloading one file to verify the download count increments.
+5. If credentials are absent, the counters show an unavailable message rather than fabricated numbers.
+
+**Privacy:** Source media does not get uploaded for tracking. The usage service stores an approximate cardinality structure built from hashes of randomly generated browser identifiers plus a global action counter; credentials remain server-side. These counters are publicly visible and are **not tamper-proof**—they are best suited as lightweight community statistics rather than auditable business analytics. For analytics reporting, use your deployment provider's analytics dashboard separately.
+
+---
+
 ## Tools & Features
 
 | Tool | Route | What it does |
