@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@imgly/background-removal": "^1.7.0",
+    "browser-image-compression": "^2.0.2",
     "clsx": "^2.1.1",
     "file-saver": "^2.0.5",
     "framer-motion": "^13.1.1",

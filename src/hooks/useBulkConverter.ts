@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ExtractedFrame, ResolutionMode } from '@/lib/videoUtils';
+import imageCompression from 'browser-image-compression';
+import { ExtractedFrame } from '@/lib/videoUtils';
 
 export interface UseBulkConverterReturn {
   frames: ExtractedFrame[];
@@ -7,7 +8,7 @@ export interface UseBulkConverterReturn {
   isPaused: boolean;
   progress: number;
   totalFiles: number;
-  startConversion: (files: File[], quality: number, resolution: ResolutionMode, resume?: boolean) => Promise<void>;
+  startConversion: (files: File[], resume?: boolean) => Promise<void>;
   pauseConversion: () => void;
   resetState: () => void;
 }
@@ -58,8 +59,6 @@ export function useBulkConverter(): UseBulkConverterReturn {
 
   const startConversion = useCallback(async (
     files: File[], 
-    quality: number, 
-    resolution: ResolutionMode, 
     resume: boolean = false
   ) => {
     
@@ -81,18 +80,6 @@ export function useBulkConverter(): UseBulkConverterReturn {
     shouldCancelRef.current = false;
 
     try {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) throw new Error('Failed to get canvas 2d context');
-
-      let MAX_WIDTH: number | null = null;
-      switch (resolution) {
-        case '1080p (FHD)': MAX_WIDTH = 1920; break;
-        case '720p (HD)': MAX_WIDTH = 1280; break;
-        case '480p': MAX_WIDTH = 854; break;
-        case 'Original': default: MAX_WIDTH = null; break;
-      }
-
       while (pendingFilesRef.current.length > 0) {
         if (shouldCancelRef.current) break;
         if (shouldPauseRef.current) {
@@ -104,43 +91,31 @@ export function useBulkConverter(): UseBulkConverterReturn {
         const currentFile = pendingFilesRef.current.shift()!;
         const currentNumber = totalFiles - pendingFilesRef.current.length;
 
-        // Load image
-        const img = await createImageBitmap(currentFile);
-        
-        let canvasWidth = img.width;
-        let canvasHeight = img.height;
-
-        if (MAX_WIDTH && canvasWidth > MAX_WIDTH) {
-          canvasHeight = Math.round((MAX_WIDTH / canvasWidth) * canvasHeight);
-          canvasWidth = MAX_WIDTH;
-        }
-
-        canvas.width = canvasWidth;
-        canvas.height = canvasHeight;
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob(resolve, 'image/webp', quality);
+        // Advanced client-side Web Worker compression
+        const compressedFile = await imageCompression(currentFile, {
+          maxSizeMB: 0.8,
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+          fileType: 'image/webp',
+          alwaysKeepResolution: false,
+          initialQuality: 0.75,
         });
 
-        if (blob) {
-          const enhancedFrame: ExtractedFrame = {
-            id: crypto.randomUUID(),
-            number: currentNumber,
-            timestamp: 0, // N/A for images
-            blob,
-            size: blob.size,
-            previewUrl: URL.createObjectURL(blob),
-            extension: 'webp'
-          };
+        const enhancedFrame: ExtractedFrame = {
+          id: crypto.randomUUID(),
+          number: currentNumber,
+          timestamp: 0, // N/A for images
+          blob: compressedFile,
+          size: compressedFile.size,
+          previewUrl: URL.createObjectURL(compressedFile),
+          extension: 'webp'
+        };
 
-          setFrames(prev => [...prev, enhancedFrame]);
-          setProgress(currentNumber);
-        }
+        setFrames(prev => [...prev, enhancedFrame]);
+        setProgress(currentNumber);
         
-        img.close();
+        // Prevent UI freezing
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
 
       if (!shouldPauseRef.current && !shouldCancelRef.current) {

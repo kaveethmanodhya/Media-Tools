@@ -1,65 +1,272 @@
-'use client';
+import type { Metadata } from "next";
+import Link from "next/link";
+import {
+  Film,
+  Layers,
+  ImageIcon,
+  Eraser,
+  Sliders,
+  Zap,
+  Shield,
+  Cpu,
+  ArrowRight,
+  CheckCircle2,
+  Lock,
+  Sparkles,
+} from "lucide-react";
 
-import { useState } from 'react';
-import { VideoExtractor } from '@/components/VideoExtractor';
-import { BulkConverter } from '@/components/BulkConverter';
-import { Video, Image as ImageIcon } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+export const metadata: Metadata = {
+  title: "Home",
+  description:
+    "MediaTools is a client-side media suite. Extract video frames, pack sprite sheets, batch convert images, remove backgrounds with local AI, and apply pixel filters — completely in your browser.",
+};
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+const tools = [
+  {
+    href: "/video-extractor",
+    title: "Video → Frames Extractor",
+    icon: Film,
+    desc: "Extract WebP frames with interactive dual-handle timeline trimming, crop presets, perceptual duplicate removal (aHash), and ZIP export.",
+    badge: "Most Popular",
+    features: ["Dual-handle trimmer", "aHash duplicate filter", "ZIP archive export"],
+  },
+  {
+    href: "/sprite-sheet",
+    title: "Sprite Sheet Maker",
+    icon: Layers,
+    desc: "Pack sequences of frames into optimized 2D grid sheets and generate accompanying JSON coordinate maps for game engines and animations.",
+    badge: null,
+    features: ["Custom column packing", "JSON UV coordinates", "WebP & PNG export"],
+  },
+  {
+    href: "/image-converter",
+    title: "Bulk Image Converter",
+    icon: ImageIcon,
+    desc: "Batch convert and downscale dozens of PNG, JPEG, and WebP images simultaneously with live before/after compression stats.",
+    badge: null,
+    features: ["Batch drag-and-drop", "Live savings meter", "Quality & dimension control"],
+  },
+  {
+    href: "/bg-remover",
+    title: "AI Background Remover",
+    icon: Eraser,
+    desc: "Extract subjects and remove backgrounds completely offline using an in-browser neural network running locally via WebAssembly.",
+    badge: "Local AI",
+    features: ["100% offline model", "Zero cloud telemetry", "Transparent PNG/WebP"],
+  },
+  {
+    href: "/filters",
+    title: "Canvas Color Filters",
+    icon: Sliders,
+    desc: "Apply mathematical pixel transformations directly via HTML5 Canvas ImageData — Invert, Grayscale, High Contrast, Sepia, and color temperature.",
+    badge: null,
+    features: ["Pure pixel math", "Adjustable intensity", "Full-resolution download"],
+  },
+];
 
-export default function Home() {
-  const [activeTab, setActiveTab] = useState<'video' | 'bulk'>('video');
+const pillars = [
+  {
+    icon: Shield,
+    title: "100% Private & Local",
+    desc: "Your files are never transmitted to any cloud or backend server. All decoding and transformation run in local memory.",
+  },
+  {
+    icon: Cpu,
+    title: "Hardware Accelerated",
+    desc: "Taps directly into HTML5 Canvas, Web Workers, and WebAssembly to process gigabyte video files smoothly.",
+  },
+  {
+    icon: Zap,
+    title: "Zero Rate Limits",
+    desc: "No registrations, no subscriptions, and no quotas. Process unlimited files as fast as your CPU and GPU can render.",
+  },
+  {
+    icon: Lock,
+    title: "Leak-Free Memory Engine",
+    desc: "Engineered with strict Blob lifecycle revocation to protect system memory during thousand-frame bulk extractions.",
+  },
+];
 
+const workflowSteps = [
+  {
+    step: "01",
+    title: "Select or Drop Media",
+    desc: "Drop your video or images directly onto any tool. Files load instantly into browser memory with zero network delay.",
+  },
+  {
+    step: "02",
+    title: "Configure & Process",
+    desc: "Fine-tune timeline ranges, quality sliders, crop ratios, or filters. Watch live real-time preview canvas feeds.",
+  },
+  {
+    step: "03",
+    title: "Download Output",
+    desc: "Download single optimized images or package everything into a single organized ZIP bundle with a single click.",
+  },
+];
+
+export default function HomePage() {
   return (
-    <main className="min-h-screen relative overflow-hidden bg-gray-950 font-sans antialiased text-slate-100 flex flex-col items-center py-12 md:py-24 px-4 md:px-8">
-      {/* Background gradients */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-cyan-500/10 blur-[120px] pointer-events-none" />
-      
-      {/* Noise overlay */}
-      <div 
-        className="absolute inset-0 opacity-[0.03] pointer-events-none" 
-        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
-      />
-      
-      <div className="w-full z-10 relative space-y-8 flex flex-col items-center">
-        
-        {/* Navigation Tabs */}
-        <div className="flex bg-gray-900/60 backdrop-blur-xl p-1.5 rounded-2xl border border-gray-800 shadow-xl max-w-md w-full mx-auto relative z-20">
-          <button
-            onClick={() => setActiveTab('video')}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300",
-              activeTab === 'video' 
-                ? "bg-gray-800 text-white shadow-md border border-gray-700" 
-                : "text-gray-400 hover:text-white hover:bg-gray-800/50"
-            )}
-          >
-            <Video size={18} />
-            Video to Frames
-          </button>
-          <button
-            onClick={() => setActiveTab('bulk')}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300",
-              activeTab === 'bulk' 
-                ? "bg-gray-800 text-white shadow-md border border-gray-700" 
-                : "text-gray-400 hover:text-white hover:bg-gray-800/50"
-            )}
-          >
-            <ImageIcon size={18} />
-            Bulk WebP Converter
-          </button>
+    <div className="home-container">
+      {/* Hero Section */}
+      <section className="hero-section">
+        <div className="hero-badge">
+          <Sparkles size={14} className="hero-badge-icon" />
+          <span>Client-Side Media Processing Suite</span>
+        </div>
+        <h1 className="hero-title">
+          Process Media at Warp Speed.
+          <br />
+          <span className="hero-title-accent">Zero Server Uploads.</span>
+        </h1>
+        <p className="hero-subtitle">
+          Extract high-res frames, generate sprite sheets, convert image formats in bulk, remove backgrounds with offline AI, and apply pixel filters — entirely inside your web browser.
+        </p>
+
+        <div className="hero-actions">
+          <Link href="/video-extractor" className="btn btn-primary btn-lg">
+            <span>Launch Video Extractor</span>
+            <ArrowRight size={17} />
+          </Link>
+          <a href="#tools" className="btn btn-secondary btn-lg">
+            Browse All Tools
+          </a>
         </div>
 
-        <div className="w-full">
-          {activeTab === 'video' ? <VideoExtractor /> : <BulkConverter />}
+        {/* Quick Stats Banner */}
+        <div className="hero-stats-strip">
+          <div className="stat-pill">
+            <span className="stat-num">5</span>
+            <span className="stat-label-text">Pro Tools</span>
+          </div>
+          <div className="stat-pill-divider" />
+          <div className="stat-pill">
+            <span className="stat-num">0B</span>
+            <span className="stat-label-text">Server Uploads</span>
+          </div>
+          <div className="stat-pill-divider" />
+          <div className="stat-pill">
+            <span className="stat-num">100%</span>
+            <span className="stat-label-text">Private & Local</span>
+          </div>
+          <div className="stat-pill-divider" />
+          <div className="stat-pill">
+            <span className="stat-num">Free</span>
+            <span className="stat-label-text">No Limits</span>
+          </div>
         </div>
-      </div>
-    </main>
+      </section>
+
+      {/* Tools Catalog */}
+      <section id="tools" className="tools-catalog-section">
+        <div className="section-header">
+          <div className="section-tag">Toolkit</div>
+          <h2 className="section-title">Standalone Browser Utilities</h2>
+          <p className="section-subtitle">
+            Engineered from scratch using modern web APIs. Click any tool to get started immediately.
+          </p>
+        </div>
+
+        <div className="tools-grid-website">
+          {tools.map((t) => {
+            const Icon = t.icon;
+            return (
+              <Link key={t.href} href={t.href} className="website-tool-card">
+                <div className="card-top-row">
+                  <div className="tool-card-icon-box">
+                    <Icon size={22} strokeWidth={2} />
+                  </div>
+                  {t.badge && (
+                    <span className="badge badge-mint">{t.badge}</span>
+                  )}
+                </div>
+
+                <h3 className="website-tool-title">{t.title}</h3>
+                <p className="website-tool-desc">{t.desc}</p>
+
+                <ul className="tool-feature-list">
+                  {t.features.map((feat) => (
+                    <li key={feat} className="tool-feature-item">
+                      <CheckCircle2 size={13} className="feature-check-icon" />
+                      <span>{feat}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="card-action-link">
+                  <span>Open Tool</span>
+                  <ArrowRight size={14} className="action-arrow" />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* How It Works */}
+      <section className="workflow-section">
+        <div className="section-header">
+          <div className="section-tag">Architecture</div>
+          <h2 className="section-title">How In-Browser Processing Works</h2>
+          <p className="section-subtitle">
+            Say goodbye to waiting in queues or uploading sensitive client media to third-party servers.
+          </p>
+        </div>
+
+        <div className="workflow-grid">
+          {workflowSteps.map((step) => (
+            <div key={step.step} className="workflow-card">
+              <span className="workflow-step-num">{step.step}</span>
+              <h3 className="workflow-step-title">{step.title}</h3>
+              <p className="workflow-step-desc">{step.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Core Advantages */}
+      <section className="pillars-section">
+        <div className="section-header">
+          <div className="section-tag">Performance</div>
+          <h2 className="section-title">Engineered for Reliability</h2>
+          <p className="section-subtitle">
+            Built for developers, video editors, and game creators who require speed and autonomy.
+          </p>
+        </div>
+
+        <div className="pillars-grid">
+          {pillars.map((p) => {
+            const Icon = p.icon;
+            return (
+              <div key={p.title} className="pillar-card">
+                <div className="pillar-icon-box">
+                  <Icon size={20} strokeWidth={2} />
+                </div>
+                <h3 className="pillar-title">{p.title}</h3>
+                <p className="pillar-desc">{p.desc}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Bottom CTA Banner */}
+      <section className="cta-banner-section">
+        <div className="cta-banner-card">
+          <div className="cta-content">
+            <h2 className="cta-title">Ready to extract or convert?</h2>
+            <p className="cta-subtitle">
+              Jump straight into the Video Extractor or batch image converter with zero setup.
+            </p>
+          </div>
+          <div className="cta-actions">
+            <Link href="/video-extractor" className="btn btn-primary btn-lg">
+              Launch Tools Now
+              <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
