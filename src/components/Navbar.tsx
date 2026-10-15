@@ -19,7 +19,7 @@ export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <header className="site-navbar">
+    <header className="site-navbar" onKeyDown={(event) => { if (event.key === "Escape") setMobileMenuOpen(false); }}>
       <div className="navbar-container">
         {/* Brand Logo */}
         <Link href="/" className="navbar-logo" onClick={() => setMobileMenuOpen(false)}>
@@ -69,7 +69,8 @@ export function Navbar() {
             type="button"
             className="mobile-menu-btn"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle Navigation Menu"
+            aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-controls="mobile-navigation"
             aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
@@ -79,7 +80,7 @@ export function Navbar() {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="mobile-nav-drawer">
+        <nav id="mobile-navigation" className="mobile-nav-drawer" aria-label="Mobile navigation">
           <div className="mobile-nav-list">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -89,6 +90,7 @@ export function Navbar() {
                   key={item.href}
                   href={item.href}
                   className={`mobile-nav-link${isActive ? ' active' : ''}`}
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   <Icon size={16} strokeWidth={1.8} />
@@ -102,7 +104,7 @@ export function Navbar() {
               );
             })}
           </div>
-        </div>
+        </nav>
       )}
     </header>
   );
