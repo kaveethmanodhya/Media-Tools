@@ -3,113 +3,135 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Film, Layers, ImageIcon, Eraser, Sliders, Home, Menu, X, ShieldCheck, Crop, Stamp, FileImage, Shield, Clapperboard, Maximize2 } from 'lucide-react';
+import {
+  Film, Layers, ImageIcon, Eraser, SlidersHorizontal, Home,
+  Menu, X, ShieldCheck, Crop, Stamp, FileImage, Clapperboard,
+  Maximize2, ChevronDown, Sparkles, LockKeyhole
+} from 'lucide-react';
 
-const navItems = [
-  { href: '/', label: 'Home', icon: Home },
-  { href: '/video-extractor', label: 'Video Extractor', icon: Film, badge: 'HD' },
-  { href: '/sprite-sheet', label: 'Sprite Sheet', icon: Layers },
-  { href: '/image-converter', label: 'Image Converter', icon: ImageIcon },
-  { href: '/bg-remover', label: 'BG Remover', icon: Eraser, badge: 'AI' },
-  { href: '/filters', label: 'Color Filters', icon: Sliders },
-  { href: '/crop-resize', label: 'Crop & Resize', icon: Crop },
-  { href: '/watermark', label: 'Watermark', icon: Stamp },
-  { href: '/image-to-pdf', label: 'Image to PDF', icon: FileImage },
-  { href: '/metadata-cleaner', label: 'Metadata Cleaner', icon: Shield },
-  { href: '/gif-maker', label: 'GIF Maker', icon: Clapperboard },
-  { href: '/upscaler', label: 'Upscaler', icon: Maximize2 },
+const sections = [
+  {
+    title: 'Image tools',
+    icon: ImageIcon,
+    items: [
+      { href: '/image-converter', label: 'Bulk Image Converter', icon: ImageIcon },
+      { href: '/crop-resize', label: 'Crop & Resize', icon: Crop },
+      { href: '/watermark', label: 'Image Watermark', icon: Stamp },
+      { href: '/image-to-pdf', label: 'Image to PDF', icon: FileImage },
+      { href: '/metadata-cleaner', label: 'Metadata Cleaner', icon: LockKeyhole },
+      { href: '/upscaler', label: 'Image Upscaler', icon: Maximize2 },
+    ],
+  },
+  {
+    title: 'Video & animation',
+    icon: Film,
+    items: [
+      { href: '/video-extractor', label: 'Video to Frames', icon: Film },
+      { href: '/sprite-sheet', label: 'Sprite Sheet Maker', icon: Layers },
+      { href: '/gif-maker', label: 'GIF Maker', icon: Clapperboard },
+    ],
+  },
+  {
+    title: 'AI & editing',
+    icon: Sparkles,
+    items: [
+      { href: '/bg-remover', label: 'AI Background Remover', icon: Eraser },
+      { href: '/filters', label: 'Color Filters', icon: SlidersHorizontal },
+    ],
+  },
 ];
 
 export function Navbar() {
   const pathname = usePathname();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <header className="site-navbar">
-      <div className="navbar-container">
-        {/* Brand Logo */}
-        <Link href="/" className="navbar-logo" onClick={() => setMobileMenuOpen(false)}>
+    <header className="site-navbar mt-navbar" onKeyDown={event => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        document.querySelectorAll<HTMLDetailsElement>('.mt-nav-dropdown[open]')
+          .forEach(detail => { detail.open = false; });
+      }
+    }}>
+      <div className="navbar-container mt-navbar-inner">
+        <Link href="/" className="navbar-logo" onClick={() => setMenuOpen(false)}>
           <img
-            src="/logo.png"
-            alt="MediaTools Logo"
-            width={32}
-            height={32}
+            src="/logo.png" alt="" width={36} height={36}
             className="navbar-logo-img"
           />
-          <div className="navbar-logo-text">
-            <span>Media<span className="logo-accent">Tools</span></span>
-          </div>
+          <span className="navbar-logo-text">
+            Media<span className="logo-accent">Tools</span>
+          </span>
         </Link>
 
-        {/* Desktop Navigation */}
-        <nav className="desktop-nav" aria-label="Main Navigation">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`navbar-link${isActive ? ' active' : ''}`}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                <Icon size={15} strokeWidth={1.8} className="navbar-link-icon" />
-                <span>{item.label}</span>
-                {item.badge && (
-                  <span className="navbar-link-badge">{item.badge}</span>
-                )}
-              </Link>
-            );
+        <nav className="mt-desktop-nav" aria-label="Main navigation">
+          <Link href="/" className={'mt-nav-home' + (pathname === '/' ? ' active' : '')}
+            aria-current={pathname === '/' ? 'page' : undefined}>
+            <Home size={16}/> Home
+          </Link>
+          {sections.map(section => {
+            const SectionIcon = section.icon;
+            const active = section.items.some(item => item.href === pathname);
+            return <details className="mt-nav-dropdown" key={section.title}>
+              <summary className={'mt-nav-trigger' + (active ? ' active' : '')}>
+                <SectionIcon size={16}/>
+                {section.title}
+                <ChevronDown size={13} className="mt-nav-chevron"/>
+              </summary>
+              <div className="mt-nav-panel">
+                <div className="mt-nav-panel-heading">{section.title}</div>
+                {section.items.map(item => {
+                  const Icon = item.icon;
+                  return <Link key={item.href} href={item.href}
+                    className={'mt-nav-panel-item' + (pathname === item.href ? ' active' : '')}
+                    aria-current={pathname === item.href ? 'page' : undefined}
+                    onClick={event => {
+                      const parent = event.currentTarget.closest('details');
+                      if (parent) parent.open = false;
+                    }}>
+                    <Icon size={17}/>
+                    <span>{item.label}</span>
+                  </Link>;
+                })}
+              </div>
+            </details>;
           })}
         </nav>
 
-        {/* Right CTA / Badge */}
-        <div className="navbar-actions">
-          <div className="privacy-pill">
-            <ShieldCheck size={14} className="privacy-pill-icon" />
-            <span>100% In-Browser</span>
-          </div>
-
-          {/* Mobile hamburger */}
-          <button
-            type="button"
-            className="mobile-menu-btn"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle Navigation Menu"
-            aria-expanded={mobileMenuOpen}
-          >
-            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+        <div className="mt-navbar-right">
+          <span className="privacy-pill mt-privacy-pill">
+            <ShieldCheck size={14}/>
+            Private & local
+          </span>
+          <button type="button" className="mt-menu-button" onClick={() => setMenuOpen(v => !v)}
+            aria-expanded={menuOpen} aria-controls="mt-mobile-navigation"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}>
+            {menuOpen ? <X size={20}/> : <Menu size={20}/>}
           </button>
         </div>
       </div>
-
-      {/* Mobile Drawer */}
-      {mobileMenuOpen && (
-        <div className="mobile-nav-drawer">
-          <div className="mobile-nav-list">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`mobile-nav-link${isActive ? ' active' : ''}`}
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <Icon size={16} strokeWidth={1.8} />
-                  <span>{item.label}</span>
-                  {item.badge && (
-                    <span className="navbar-link-badge" style={{ marginLeft: 'auto' }}>
-                      {item.badge}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
+      {menuOpen && <nav id="mt-mobile-navigation" className="mt-mobile-nav" aria-label="Mobile navigation">
+        <div className="mt-mobile-nav-inner">
+          <Link href="/" className={'mt-mobile-link' + (pathname === '/' ? ' active' : '')}
+            onClick={() => setMenuOpen(false)}>
+            <Home size={17}/> Home
+          </Link>
+          {sections.map(section => <section key={section.title} className="mt-mobile-section">
+            <h2>{section.title}</h2>
+            <div className="mt-mobile-items">
+              {section.items.map(item => {
+                const Icon = item.icon;
+                return <Link key={item.href} href={item.href}
+                  className={'mt-mobile-link' + (pathname === item.href ? ' active' : '')}
+                  aria-current={pathname === item.href ? 'page' : undefined}
+                  onClick={() => setMenuOpen(false)}>
+                  <Icon size={17}/>{item.label}
+                </Link>;
+              })}
+            </div>
+          </section>)}
         </div>
-      )}
+      </nav>}
     </header>
   );
 }
