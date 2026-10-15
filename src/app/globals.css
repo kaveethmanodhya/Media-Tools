@@ -95,6 +95,7 @@ body {
   display: flex;
   flex-direction: column;
   width: 100%;
+  min-width: 0;
 }
 
 /* =========================================
@@ -175,6 +176,7 @@ body {
 
 .navbar-link {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   gap: 7px;
   padding: 7px 12px;
@@ -224,6 +226,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .privacy-pill {
@@ -327,6 +330,7 @@ body {
   margin: 0 auto;
   padding: 32px 24px;
   width: 100%;
+  min-width: 0;
   flex: 1;
 }
 
@@ -471,7 +475,7 @@ body {
 
 .tools-grid-website {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 20px;
 }
 
@@ -581,7 +585,7 @@ body {
 
 .workflow-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 20px;
 }
 
@@ -625,7 +629,7 @@ body {
 
 .pillars-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 20px;
 }
 
@@ -833,6 +837,7 @@ body {
    CARDS & FORMS (TOOL UI)
    ========================================= */
 .card {
+  min-width: 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border-charcoal);
   border-radius: var(--radius-lg);
@@ -966,7 +971,11 @@ input[type="range"]::-moz-range-thumb {
   border: 1px solid transparent;
   transition: all 0.15s ease;
   font-family: inherit;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  min-height: 40px;
   text-decoration: none;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.1);
 }
@@ -1150,13 +1159,13 @@ input[type="range"]::-moz-range-thumb {
    ========================================= */
 .tool-grid {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
 
 .tool-grid-wide {
-  grid-template-columns: 330px 1fr;
+  grid-template-columns: minmax(0, 330px) minmax(0, 1fr);
 }
 
 /* =========================================
@@ -1164,6 +1173,9 @@ input[type="range"]::-moz-range-thumb {
    ========================================= */
 .tabs {
   display: flex;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
   background: #141414;
   border-radius: var(--radius-md);
   padding: 3px;
@@ -1172,7 +1184,9 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .tab-btn {
-  flex: 1;
+  flex: 1 0 auto;
+  white-space: nowrap;
+  min-height: 36px;
   padding: 7px 12px;
   border-radius: var(--radius-sm);
   font-size: 12.5px;
@@ -1406,18 +1420,33 @@ input[type="range"]::-moz-range-thumb {
   background: var(--orange-secondary);
 }
 
+/* Consistent keyboard focus for navigation and tool controls. */
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--orange-primary);
+  outline-offset: 3px;
+}
+
+@media (max-width: 1180px) {
+  .desktop-nav,
+  .privacy-pill {
+    display: none;
+  }
+  .mobile-menu-btn,
+  .mobile-nav-drawer {
+    display: block;
+  }
+  .mobile-menu-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mobile-nav-drawer {
+    padding: 12px max(16px, calc((100% - 1232px) / 2));
+  }
+}
+
 @media (max-width: 900px) {
   .hero-title {
     font-size: 34px;
-  }
-  .desktop-nav {
-    display: none;
-  }
-  .mobile-menu-btn {
-    display: block;
-  }
-  .mobile-nav-drawer {
-    display: block;
   }
   .footer-grid {
     grid-template-columns: 1fr;
@@ -1439,5 +1468,53 @@ input[type="range"]::-moz-range-thumb {
   }
   .stat-pill-divider {
     display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .navbar-container {
+    height: 60px;
+    padding: 0 16px;
+  }
+  .page-header {
+    padding: 24px 16px 18px;
+  }
+  .page-body {
+    padding: 20px 16px;
+  }
+  .home-container {
+    padding: 0 16px;
+  }
+  .hero-section {
+    padding: 48px 0 36px;
+  }
+  .hero-title {
+    font-size: clamp(28px, 7vw, 34px);
+  }
+  .hero-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+  .hero-actions .btn {
+    width: 100%;
+  }
+  .hero-stats-strip {
+    width: 100%;
+    padding: 14px;
+  }
+  .stat-row {
+    grid-template-columns: 1fr;
+  }
+  .card {
+    padding: 16px;
+  }
+  .card-sm {
+    padding: 14px;
+  }
+  .tabs {
+    min-width: 0;
+  }
+  .footer-container {
+    padding: 0 16px;
   }
 }
