@@ -1,4 +1,5 @@
 'use client';
+import { recordDownload } from '@/lib/usageClient';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
@@ -297,6 +298,7 @@ export function BgRemover() {
     a.href = item.resultUrl;
     a.download = `${base}_transparent.${ext}`;
     a.click();
+    recordDownload();
   };
 
   // Download all image results as ZIP
@@ -314,6 +316,7 @@ export function BgRemover() {
 
     const content = await zip.generateAsync({ type: 'blob' });
     saveAs(content, `transparent_images_${Date.now()}.zip`);
+    recordDownload();
   };
 
   // Download video frames as ZIP
