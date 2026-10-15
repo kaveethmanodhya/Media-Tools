@@ -1,4 +1,5 @@
 'use client';
+import { recordDownload } from '@/lib/usageClient';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Sliders, UploadCloud, Download, X, RefreshCw } from 'lucide-react';
@@ -191,6 +192,7 @@ export function CanvasColorFilters() {
     a.href = url;
     a.download = `${base}${filter}.png`;
     a.click();
+    recordDownload();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
