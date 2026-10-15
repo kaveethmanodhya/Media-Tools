@@ -27,6 +27,7 @@ interface ConvertedImage {
   originalWidth?: number;
   originalHeight?: number;
   outputBlob: Blob | null;
+  outputFormat?: OutputFormat;
   outputUrl: string | null;
   outputSize: number;
   outputWidth?: number;
@@ -232,6 +233,7 @@ export function BulkImageConverter() {
                   status: 'done',
                   progress: 100,
                   outputBlob: blob,
+                  outputFormat: format,
                   outputUrl: url,
                   outputSize: blob.size,
                   originalWidth: origW,
@@ -269,7 +271,7 @@ export function BulkImageConverter() {
 
     done.forEach((img) => {
       const base = img.name.replace(/\.[^/.]+$/, '');
-      folder.file(`${base}.${FORMAT_EXTS[format]}`, img.outputBlob!);
+      folder.file(`${base}.${FORMAT_EXTS[img.outputFormat || format]}`, img.outputBlob!);
     });
 
     const content = await zip.generateAsync({ type: 'blob' });
@@ -286,7 +288,7 @@ export function BulkImageConverter() {
     const base = img.name.replace(/\.[^/.]+$/, '');
     const a = document.createElement('a');
     a.href = img.outputUrl;
-    a.download = `${base}.${FORMAT_EXTS[format]}`;
+    a.download = `${base}.${FORMAT_EXTS[img.outputFormat || format]}`;
     a.click();
   };
 
