@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import Script from "next/script";
+import { UsageTracker } from "@/components/UsageTracker";
 import "./globals.css";
 
 const inter = Inter({
@@ -61,6 +62,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={inter.variable} data-scroll-behavior="smooth">
       <body>
         <div className="site-wrapper">
+          <UsageTracker />
           <Navbar />
           <div className="site-main">{children}</div>
           <Footer />
