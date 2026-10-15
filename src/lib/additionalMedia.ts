@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { recordDownload } from './usageClient';
 
 export type ExportImageFormat = 'image/png' | 'image/jpeg' | 'image/webp';
 
@@ -39,6 +40,7 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
+  recordDownload();
   a.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
