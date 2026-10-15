@@ -1,4 +1,5 @@
 'use client';
+import { recordDownload } from '@/lib/usageClient';
 
 import React, { useState, useRef, useCallback } from 'react';
 import { Layers, UploadCloud, Download, RefreshCw, X, Grid } from 'lucide-react';
@@ -162,6 +163,7 @@ export function SpritesheetMaker() {
     a.href = url;
     a.download = 'spritesheet.webp';
     a.click();
+    recordDownload();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
@@ -180,6 +182,7 @@ export function SpritesheetMaker() {
     a.href = url;
     a.download = 'spritesheet.json';
     a.click();
+    recordDownload();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
