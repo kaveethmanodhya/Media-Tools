@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Film, Layers, ImageIcon, Eraser, Sliders, Home, Menu, X, ShieldCheck } from 'lucide-react';
+import { Film, Layers, ImageIcon, Eraser, Sliders, Home, Menu, X, ShieldCheck, Crop, Stamp, FileImage, Shield, Clapperboard, Maximize2 } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Home', icon: Home },
@@ -12,6 +12,12 @@ const navItems = [
   { href: '/image-converter', label: 'Image Converter', icon: ImageIcon },
   { href: '/bg-remover', label: 'BG Remover', icon: Eraser, badge: 'AI' },
   { href: '/filters', label: 'Color Filters', icon: Sliders },
+  { href: '/crop-resize', label: 'Crop & Resize', icon: Crop },
+  { href: '/watermark', label: 'Watermark', icon: Stamp },
+  { href: '/image-to-pdf', label: 'Image to PDF', icon: FileImage },
+  { href: '/metadata-cleaner', label: 'Metadata Cleaner', icon: Shield },
+  { href: '/gif-maker', label: 'GIF Maker', icon: Clapperboard },
+  { href: '/upscaler', label: 'Upscaler', icon: Maximize2 },
 ];
 
 export function Navbar() {
