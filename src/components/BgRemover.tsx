@@ -515,7 +515,7 @@ export function BgRemover() {
                 {model === 'isnet' ? 'Highest Precision' : model === 'isnet_fp16' ? 'Fast & Crisp' : 'High Speed'}
               </span>
             </div>
-            <div className="tabs" style={{ marginBottom: '8px' }}>
+            <div className="tabs bg-model-tabs" style={{ marginBottom: '8px' }}>
               <button
                 className={`tab-btn${model === 'isnet' ? ' active' : ''}`}
                 onClick={() => setModel('isnet')}
@@ -684,7 +684,7 @@ export function BgRemover() {
 
           {/* Export Format & Device */}
           <div className="card card-sm">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div className="bg-configuration-tabs">
               <div>
                 <label style={{ marginBottom: '6px' }}>Export Format</label>
                 <div className="tabs">
@@ -824,7 +824,7 @@ export function BgRemover() {
                 {/* Preview Toolbar */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
                   {/* Backdrop Selector */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div className="bg-backdrop-buttons">
                     <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600 }}>Backdrop:</span>
                     <button
                       type="button"
