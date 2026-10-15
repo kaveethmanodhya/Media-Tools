@@ -4,7 +4,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Eraser, UploadCloud, Download, X, RefreshCw, Cpu, CheckCircle,
   Sparkles, Sliders, Image as ImageIcon, Video, Layers, Eye,
-  Play, Pause, Zap, Check, ChevronDown, ChevronUp, Palette
+  Play, Pause, Zap, Check, ChevronDown, ChevronUp, Palette, Grid, Monitor
 } from 'lucide-react';
 import { formatFileSize, formatTime } from '@/lib/utils';
 import {
@@ -520,22 +520,25 @@ export function BgRemover() {
                 className={`tab-btn${model === 'isnet' ? ' active' : ''}`}
                 onClick={() => setModel('isnet')}
                 title="Full 32-bit floating point precision model"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
-                💎 Ultra (FP32)
+                <Sparkles size={13} /> Ultra (FP32)
               </button>
               <button
                 className={`tab-btn${model === 'isnet_fp16' ? ' active' : ''}`}
                 onClick={() => setModel('isnet_fp16')}
                 title="16-bit half precision model"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
-                ⚡ Balanced (FP16)
+                <Sliders size={13} /> Balanced (FP16)
               </button>
               <button
                 className={`tab-btn${model === 'isnet_quint8' ? ' active' : ''}`}
                 onClick={() => setModel('isnet_quint8')}
                 title="Quantized 8-bit model for maximum speed"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
-                🚀 Turbo (INT8)
+                <Zap size={13} /> Turbo (INT8)
               </button>
             </div>
             <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -706,14 +709,16 @@ export function BgRemover() {
                   <button
                     className={`tab-btn${device === 'gpu' ? ' active' : ''}`}
                     onClick={() => setDevice('gpu')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
-                    ⚡ GPU
+                    <Cpu size={13} /> GPU
                   </button>
                   <button
                     className={`tab-btn${device === 'cpu' ? ' active' : ''}`}
                     onClick={() => setDevice('cpu')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
-                    💻 CPU
+                    <Monitor size={13} /> CPU
                   </button>
                 </div>
               </div>
@@ -825,37 +830,37 @@ export function BgRemover() {
                       type="button"
                       className={`ratio-btn${backdrop === 'checker' ? ' active' : ''}`}
                       onClick={() => setBackdrop('checker')}
-                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                      style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                       title="Checkerboard Transparent"
                     >
-                      🏁 Grid
+                      <Grid size={11} /> Grid
                     </button>
                     <button
                       type="button"
                       className={`ratio-btn${backdrop === 'white' ? ' active' : ''}`}
                       onClick={() => setBackdrop('white')}
-                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                      style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                       title="Solid White"
                     >
-                      ⚪ White
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#ffffff', border: '1px solid #71717a', display: 'inline-block' }} /> White
                     </button>
                     <button
                       type="button"
                       className={`ratio-btn${backdrop === 'black' ? ' active' : ''}`}
                       onClick={() => setBackdrop('black')}
-                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                      style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                       title="Solid Black"
                     >
-                      ⚫ Black
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#09090b', border: '1px solid #3f3f46', display: 'inline-block' }} /> Black
                     </button>
                     <button
                       type="button"
                       className={`ratio-btn${backdrop === 'green' ? ' active' : ''}`}
                       onClick={() => setBackdrop('green')}
-                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                      style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                       title="Studio Green Screen"
                     >
-                      🟩 Green
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block' }} /> Green
                     </button>
                     <label
                       className={`ratio-btn${backdrop === 'custom' ? ' active' : ''}`}

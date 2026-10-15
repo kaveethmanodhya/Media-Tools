@@ -10,33 +10,33 @@
 </p>
 
 <p align="center">
-  <a href="#-tools--features">Tools & Features</a> •
-  <a href="#-architecture--privacy-model">Architecture</a> •
-  <a href="#-tech-stack">Tech Stack</a> •
-  <a href="#-design-system">Design System</a> •
-  <a href="#-getting-started">Getting Started</a> •
-  <a href="#-project-structure">Project Structure</a>
+  <a href="#tools--features">Tools & Features</a> •
+  <a href="#architecture--privacy-model">Architecture</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#design-system">Design System</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#project-structure">Project Structure</a>
 </p>
 
 ---
 
-## 🌟 Overview
+## Overview
 
 **MediaTools** is a production-grade, 100% client-side media manipulation suite. All video frame extraction, sprite packing, image format conversion, neural background removal, and color filtering execute directly inside your browser memory using HTML5 Canvas, Web Workers, and WebAssembly.
 
-- 🔒 **100% Private:** Zero server uploads. Your videos and photos never leave your device.
-- ⚡ **Zero Latency:** No network bottlenecks or queue waiting times.
-- 💸 **Zero Server Costs:** Completely serverless client-side execution.
-- 🛡️ **Leak-Free Memory Engine:** Strict Blob lifecycle revocation (`URL.revokeObjectURL`) to safely process large video files and hundreds of high-resolution images.
+- **100% Private:** Zero server uploads. Your videos and photos never leave your device.
+- **Zero Latency:** No network bottlenecks or queue waiting times.
+- **Zero Server Costs:** Completely serverless client-side execution.
+- **Leak-Free Memory Engine:** Strict Blob lifecycle revocation (`URL.revokeObjectURL`) to safely process large video files and hundreds of high-resolution images.
 
 **Created by:** Kaveeth Manodhya  
 **Theme:** Charcoal Neutral (`#393939`), Flame Orange (`#FF5A09`), Warm Amber (`#ec7f37`), and Burnished Rust (`#be4f0c`).
 
 ---
 
-## 🛠️ Tools & Features
+## Tools & Features
 
-### 1. 🎬 Advanced Video-to-Frames Extractor (`/video-extractor`)
+### 1. Advanced Video-to-Frames Extractor (`/video-extractor`)
 Extract high-resolution image sequences from local video files (`.mp4`, `.webm`, `.mov`).
 - **Interactive Timeline Trimmer:** Dual-handle range slider to designate precise Start and End timestamps (`[start, end]`), restricting extraction only to relevant segments.
 - **Aspect Ratio Cropping:** In-memory canvas cropping presets:
@@ -51,7 +51,7 @@ Extract high-resolution image sequences from local video files (`.mp4`, `.webm`,
 
 ---
 
-### 2. 🧩 Sprite Sheet Maker (`/sprite-sheet`)
+### 2. Sprite Sheet Maker (`/sprite-sheet`)
 Pack multi-frame sequences or custom image batches into an optimized 2D texture atlas for web animations and game development.
 - **Flexible Grid Controls:** Custom column counts, max cell width/height, and inter-frame cell padding (px).
 - **Format Export:** Composite rendering into high-efficiency **WebP** or lossless **PNG**.
@@ -70,7 +70,7 @@ Pack multi-frame sequences or custom image batches into an optimized 2D texture 
 
 ---
 
-### 3. 🖼️ Bulk Image Converter & Resizer (`/image-converter`)
+### 3. Bulk Image Converter & Resizer (`/image-converter`)
 Advanced client-side batch compression and format transcoding powered by `browser-image-compression`.
 - **Background Web Worker Engine:** Offloads multi-pass compression iterations to background threads (`useWebWorker: true`), keeping the UI responsive even during heavy batches.
 - **Target File Size Budgeting (`maxSizeMB`):** 
@@ -80,12 +80,12 @@ Advanced client-side batch compression and format transcoding powered by `browse
   - Presets: `1920 (FHD)`, `1280 (HD)`, `800 (Web)`, `Original (No limit)`.
   - Proportional downscaling prevents bloated encodes on 4K/8K images (`alwaysKeepResolution: false`).
 - **Target Formats:** WebP, PNG, and JPEG.
-- **Real-Time Before & After Metrics:** Live visual feedback displaying original size vs. output size, percentage savings badge (`-72% Saved`), dimension changes, and budget validation (`✓ Target met`).
+- **Real-Time Before & After Metrics:** Live visual feedback displaying original size vs. output size, percentage savings badge (`-72% Saved`), dimension changes, and budget validation (`Target met`).
 - **Export:** Download individual files or bundle the entire converted queue into a single organized ZIP archive.
 
 ---
 
-### 4. 🪄 AI Background Remover (`/bg-remover`)
+### 4. AI Background Remover (`/bg-remover`)
 Remove photo backgrounds directly inside the browser using local machine learning.
 - **Offline In-Browser AI:** Powered by `@imgly/background-removal`, utilizing an ONNX neural model executed via WebAssembly.
 - **Zero Cloud Leakage:** Photos never travel across the network; processing happens in local CPU/GPU memory.
@@ -94,7 +94,7 @@ Remove photo backgrounds directly inside the browser using local machine learnin
 
 ---
 
-### 5. 🎨 Canvas Color Filters (`/filters`)
+### 5. Canvas Color Filters (`/filters`)
 Direct pixel-level math transformations executed on HTML5 Canvas without CSS overlay filters.
 - **Filters Included:**
   - **Grayscale:** Weighted luminance matrix ($0.299R + 0.587G + 0.114B$).
@@ -107,7 +107,7 @@ Direct pixel-level math transformations executed on HTML5 Canvas without CSS ove
 
 ---
 
-## 🏗️ Architecture & Privacy Model
+## Architecture & Privacy Model
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -140,7 +140,7 @@ Direct pixel-level math transformations executed on HTML5 Canvas without CSS ove
 
 ---
 
-## 💻 Tech Stack
+## Tech Stack
 
 | Technology | Purpose |
 |---|---|
@@ -155,7 +155,7 @@ Direct pixel-level math transformations executed on HTML5 Canvas without CSS ove
 
 ---
 
-## 🎨 Design System
+## Design System
 
 MediaTools uses a custom SaaS theme:
 - **Base Surfaces:** `#141414` (Primary background), `#1f1f1f` (Card surface), `#2a2a2a` (Elevated)
@@ -167,11 +167,11 @@ MediaTools uses a custom SaaS theme:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ├── public/
-│   ├── logo.png                   # High-res 512x512 crisp brand logo
+│   ├── logo.png                   # High-res 2000x2000 crisp brand logo
 │   ├── favicon.ico                # Root favicon
 │   ├── favicon-32x32.png          # 32px favicon
 │   ├── favicon-16x16.png          # 16px favicon
@@ -210,7 +210,7 @@ MediaTools uses a custom SaaS theme:
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - Node.js 18.17+ or 20+
@@ -239,7 +239,7 @@ npm run start
 
 ---
 
-## 📜 License & Credits
+## License & Credits
 
 - **Author & Creator:** Kaveeth Manodhya
 - Built as a private, high-performance media suite. All transformations are performed strictly on the client device.

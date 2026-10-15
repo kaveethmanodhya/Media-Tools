@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Download, RefreshCw, X, Video, UploadCloud, Settings, Play, Pause,
-  Scissors, Grid3X3, Trash2, CheckSquare, Square, Eye, Info, Sparkles
+  Scissors, Grid3X3, Trash2, CheckSquare, Square, Eye, Info, Sparkles, Zap
 } from 'lucide-react';
 import { useVideoExtractor } from '@/hooks/useVideoExtractor';
 import { getVideoMetadata, estimateFrameSize, ExtractionOptions, AspectRatio } from '@/lib/videoUtils';
@@ -604,10 +604,10 @@ export function AdvancedVideoExtractor() {
                       type="button"
                       className={`tab-btn${bgRemovalModel === 'isnet_quint8' ? ' active' : ''}`}
                       onClick={() => setBgRemovalModel('isnet_quint8')}
-                      style={{ fontSize: '11px', padding: '4px 8px' }}
+                      style={{ fontSize: '11px', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       disabled={isExtracting || isPaused}
                     >
-                      ⚡ Turbo (Fast)
+                      <Zap size={12} /> Turbo (Fast)
                     </button>
                     <button
                       type="button"
@@ -622,10 +622,10 @@ export function AdvancedVideoExtractor() {
                       type="button"
                       className={`tab-btn${bgRemovalModel === 'isnet' ? ' active' : ''}`}
                       onClick={() => setBgRemovalModel('isnet')}
-                      style={{ fontSize: '11px', padding: '4px 8px' }}
+                      style={{ fontSize: '11px', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       disabled={isExtracting || isPaused}
                     >
-                      💎 Ultra
+                      <Sparkles size={12} /> Ultra
                     </button>
                   </div>
                   <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -689,7 +689,7 @@ export function AdvancedVideoExtractor() {
                     <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>
                       {isExtracting ? 'Extracting…'
                         : isPaused ? 'Paused'
-                        : frames.length > 0 ? '✓ Complete'
+                        : frames.length > 0 ? 'Extraction Complete'
                         : 'Ready to Extract'}
                     </h3>
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
