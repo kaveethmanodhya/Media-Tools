@@ -19,21 +19,25 @@ import {
   ShieldCheck,
   Clapperboard,
   Maximize2,
+  EyeOff,
+  Scissors,
 } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Home",
   description:
-    "MediaTools is a client-side media suite. Extract video frames, pack sprite sheets, batch convert images, remove backgrounds with local AI, and apply pixel filters — completely in your browser.",
+    "MediaTools is a client-side media suite. Extract video frames, pack sprite sheets, batch convert images, remove backgrounds with local AI, upscale with super-resolution, blur/censor sensitive areas, and slice images into parts — completely in your browser.",
 };
 
 const tools = [
+  { href: "/upscaler", title: "AI Image Upscaler", icon: Maximize2, desc: "Enhance and upscale photos with edge-directed super-resolution, unsharp clarity masking, and micro-contrast boost.", badge: "Super-Res", features: ["2× to 4× scaling", "Adaptive edge sharpening", "Split comparison view"] },
+  { href: "/blur", title: "Image Blur & Censor", icon: EyeOff, desc: "Blur full photos or censor sensitive faces, license plates, and confidential text with draggable Gaussian or mosaic masks.", badge: "Privacy", features: ["Draggable censor boxes", "Pixelate mosaic & Gaussian", "Bokeh portrait mode"] },
+  { href: "/image-splitter", title: "Image Splitter & Cutter", icon: Scissors, desc: "Slice photos into grid tiles, Instagram 3×3 feeds, or seamless swipe panorama carousels with single-click ZIP export.", badge: "New", features: ["Instagram 3×3 & carousels", "Visual cutting guide", "Download all as ZIP"] },
   { href: "/crop-resize", title: "Image Crop & Resize", icon: Crop, desc: "Crop and resize photos precisely with standard aspect ratios, custom dimensions, and local exports.", badge: null, features: ["Crop presets", "Flexible output sizes", "PNG / JPEG / WebP"] },
   { href: "/watermark", title: "Image Watermark", icon: Stamp, desc: "Protect image batches using custom text or a logo with adjustable position and opacity.", badge: null, features: ["Batch watermarking", "Text and image marks", "ZIP output"] },
   { href: "/image-to-pdf", title: "Image to PDF", icon: FileImage, desc: "Create a multi-page PDF from images entirely within your browser.", badge: null, features: ["A4 / Letter / Fit", "Multi-image PDFs", "No uploads"] },
   { href: "/metadata-cleaner", title: "Metadata Cleaner", icon: ShieldCheck, desc: "Re-encode photos to strip original EXIF, camera data and GPS metadata.", badge: null, features: ["Privacy focused", "Batch processing", "Re-encode locally"] },
   { href: "/gif-maker", title: "GIF Maker", icon: Clapperboard, desc: "Build an animated GIF from a sequence of still images, with frame delay and size controls.", badge: null, features: ["Looping animations", "Timing controls", "Local GIF encoder"] },
-  { href: "/upscaler", title: "Image Upscaler", icon: Maximize2, desc: "Resize images to 2×, 3× or 4× using high-quality multi-pass browser scaling.", badge: null, features: ["2× to 4× scaling", "Quality interpolation", "No server required"] },
 
   {
     href: "/video-extractor",

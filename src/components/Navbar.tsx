@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   Film, Layers, ImageIcon, Eraser, SlidersHorizontal, Home,
   Menu, X, ShieldCheck, Crop, Stamp, FileImage, Clapperboard,
-  Maximize2, ChevronDown, Sparkles, LockKeyhole
+  Maximize2, ChevronDown, Sparkles, LockKeyhole, EyeOff, Scissors
 } from 'lucide-react';
 
 const sections = [
@@ -16,10 +16,12 @@ const sections = [
     items: [
       { href: '/image-converter', label: 'Bulk Image Converter', icon: ImageIcon },
       { href: '/crop-resize', label: 'Crop & Resize', icon: Crop },
+      { href: '/blur', label: 'Image Blur & Censor', icon: EyeOff },
+      { href: '/image-splitter', label: 'Image Splitter & Cutter', icon: Scissors },
       { href: '/watermark', label: 'Image Watermark', icon: Stamp },
       { href: '/image-to-pdf', label: 'Image to PDF', icon: FileImage },
       { href: '/metadata-cleaner', label: 'Metadata Cleaner', icon: LockKeyhole },
-      { href: '/upscaler', label: 'Image Upscaler', icon: Maximize2 },
+      { href: '/upscaler', label: 'AI Image Upscaler', icon: Maximize2 },
     ],
   },
   {

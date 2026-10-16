@@ -162,7 +162,9 @@ export function SpritesheetMaker() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'spritesheet.webp';
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     recordDownload();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -181,7 +183,9 @@ export function SpritesheetMaker() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'spritesheet.json';
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     recordDownload();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };

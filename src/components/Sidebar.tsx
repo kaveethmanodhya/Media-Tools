@@ -2,13 +2,31 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Film, Layers, ImageIcon, Eraser, Sliders, Home, Zap } from 'lucide-react';
+import { Film, Layers, ImageIcon, Eraser, Sliders, Home, Zap, EyeOff, Scissors, Maximize2 } from 'lucide-react';
 
 const tools = [
   {
     href: '/',
     label: 'Dashboard',
     icon: Home,
+    badge: null,
+  },
+  {
+    href: '/upscaler',
+    label: 'AI Upscaler',
+    icon: Maximize2,
+    badge: 'AI',
+  },
+  {
+    href: '/blur',
+    label: 'Image Blur & Censor',
+    icon: EyeOff,
+    badge: null,
+  },
+  {
+    href: '/image-splitter',
+    label: 'Image Splitter',
+    icon: Scissors,
     badge: null,
   },
   {

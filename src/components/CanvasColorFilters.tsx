@@ -129,9 +129,12 @@ export function CanvasColorFilters() {
   }, []);
 
   const handleFile = useCallback((f: File) => {
-    const valid = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!valid.includes(f.type)) {
-      alert('Please upload a JPEG, PNG, or WebP image.');
+    const validMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/pjpeg', 'image/x-png'];
+    const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'];
+    const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
+    const isValid = f.type.startsWith('image/') || validMimes.includes(f.type) || validExts.includes(ext);
+    if (!isValid) {
+      alert('Please upload an image (JPEG, PNG, WebP, or HEIC).');
       return;
     }
     setFile(f);
@@ -191,7 +194,9 @@ export function CanvasColorFilters() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `${base}${filter}.png`;
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     recordDownload();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -240,11 +245,11 @@ export function CanvasColorFilters() {
                 <p style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '4px' }}>
                   Drop image here
                 </p>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>PNG · JPEG · WebP</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>PNG · JPEG · WebP · HEIC</p>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/png,image/jpeg,image/webp"
+                  accept="image/*,.png,.jpg,.jpeg,.webp,.heic,.heif"
                   onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
                   aria-label="Upload image for color filtering"
                 />

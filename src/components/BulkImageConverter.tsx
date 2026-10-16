@@ -118,8 +118,17 @@ async function convertImage(
     onProgress,
   };
 
-  // 3. Run client-side multi-pass compression in Web Worker
-  const compressedFile = await imageCompression(file, options);
+  // 3. Run client-side multi-pass compression in Web Worker, with fallback to main thread if Worker fails
+  let compressedFile: File;
+  try {
+    compressedFile = await imageCompression(file, options);
+  } catch (workerErr) {
+    if (options.useWebWorker) {
+      compressedFile = await imageCompression(file, { ...options, useWebWorker: false });
+    } else {
+      throw workerErr;
+    }
+  }
 
   // 4. Inspect resulting compressed dimensions
   const outDims = await getImageDimensions(compressedFile);
@@ -151,9 +160,12 @@ export function BulkImageConverter() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addFiles = useCallback((files: File[]) => {
-    const valid = files.filter((f) =>
-      ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'].includes(f.type)
-    );
+    const validMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/heic', 'image/heif', 'image/pjpeg', 'image/x-png'];
+    const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif'];
+    const valid = files.filter((f) => {
+      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
+      return f.type.startsWith('image/') || validMimes.includes(f.type) || validExts.includes(ext);
+    });
     if (valid.length === 0) return;
 
     const newImages: ConvertedImage[] = valid.map((f) => ({
@@ -278,7 +290,9 @@ export function BulkImageConverter() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'converted_images.zip';
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     recordDownload();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -289,7 +303,9 @@ export function BulkImageConverter() {
     const a = document.createElement('a');
     a.href = img.outputUrl;
     a.download = `${base}.${FORMAT_EXTS[format]}`;
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     recordDownload();
   };
 
@@ -405,13 +421,13 @@ export function BulkImageConverter() {
               Drop images here
             </p>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              PNG · JPEG · WebP · GIF · BMP
+              PNG · JPEG · WebP · GIF · BMP · HEIC
             </p>
             <input
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+              accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.heic,.heif"
               onChange={(e) => e.target.files && addFiles(Array.from(e.target.files))}
               aria-label="Upload images for conversion"
             />

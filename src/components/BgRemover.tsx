@@ -15,6 +15,7 @@ import {
   checkWebGPUSupport,
   purgeColorFromImageData,
   purgeCornersFromImageData,
+  isMobileDevice,
   MattingRefinementOptions,
   BgRemovalModel,
   BgRemovalDevice
@@ -45,12 +46,13 @@ interface BatchImageItem {
 export function BgRemover() {
   const [activeTab, setActiveTab] = useState<AppTab>('image');
   const [hasWebGPU, setHasWebGPU] = useState<boolean | null>(null);
+  const [isMobile, setIsMobile] = useState<boolean>(false);
 
   // Settings
-  const [model, setModel] = useState<BgRemovalModel>('isnet'); // Ultra Quality by default
+  const [model, setModel] = useState<BgRemovalModel>('isnet'); // Ultra Quality by default on desktop
   const [device, setDevice] = useState<BgRemovalDevice>('gpu');
   const [exportFormat, setExportFormat] = useState<ExportFormat>('image/png');
-  const [maxDimension, setMaxDimension] = useState<number>(0); // 0 = original
+  const [maxDimension, setMaxDimension] = useState<number>(0); // 0 = original (auto-clamped on mobile)
   const [refineEdges, setRefineEdges] = useState<boolean>(true);
   const [featherRadius, setFeatherRadius] = useState<number>(0.8);
   const [thresholdCutoff, setThresholdCutoff] = useState<number>(45); // 45 for clean background cut
@@ -103,12 +105,23 @@ export function BgRemover() {
   const compareContainerRef = useRef<HTMLDivElement>(null);
   const isDraggingSliderRef = useRef(false);
 
-  // Detect WebGPU on mount
+  // Detect Mobile device & WebGPU capabilities on mount
   useEffect(() => {
-    checkWebGPUSupport().then((supported) => {
-      setHasWebGPU(supported);
-      if (!supported) setDevice('cpu');
-    });
+    const mobile = isMobileDevice();
+    setIsMobile(mobile);
+    if (mobile) {
+      // Mobile devices: use Turbo 8-bit quantized model (42MB vs 168MB) and CPU Wasm
+      // with 1600px dimension ceiling to avoid out-of-memory browser tab reload crashes
+      setModel('isnet_quint8');
+      setDevice('cpu');
+      setMaxDimension(1600);
+      setHasWebGPU(false);
+    } else {
+      checkWebGPUSupport().then((supported) => {
+        setHasWebGPU(supported);
+        if (!supported) setDevice('cpu');
+      });
+    }
   }, []);
 
   // Revoke URLs on cleanup
@@ -124,13 +137,25 @@ export function BgRemover() {
     };
   }, []);
 
-  // Handle files selection
+  // Handle files selection with full mobile format compatibility (JPEG, PNG, WebP, HEIC, etc.)
   const handleImageFiles = useCallback((fileList: FileList | File[]) => {
-    const valid = ['image/jpeg', 'image/png', 'image/webp'];
+    const validMimes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/heic',
+      'image/heif',
+      'image/pjpeg',
+      'image/x-png',
+    ];
+    const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'];
     const newItems: BatchImageItem[] = [];
 
     Array.from(fileList).forEach((file) => {
-      if (valid.includes(file.type)) {
+      const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+      const hasValidExt = validExts.includes(ext);
+      const hasValidMime = validMimes.includes(file.type) || file.type.startsWith('image/');
+      if (hasValidMime || hasValidExt) {
         newItems.push({
           id: crypto.randomUUID(),
           file,
@@ -144,7 +169,7 @@ export function BgRemover() {
     });
 
     if (newItems.length === 0) {
-      alert('Please upload JPEG, PNG, or WebP images.');
+      alert('Please upload standard images (JPEG, PNG, WebP, or HEIC).');
       return;
     }
 
@@ -326,7 +351,9 @@ export function BgRemover() {
     const a = document.createElement('a');
     a.href = item.resultUrl;
     a.download = `${base}_transparent.${ext}`;
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     recordDownload();
   };
 
@@ -998,13 +1025,13 @@ export function BgRemover() {
                 {images.length > 0 ? 'Drop more images here' : 'Drop images here'}
               </p>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                PNG · JPEG · WebP (Single or Multi-file Batch)
+                PNG · JPEG · WebP · HEIC (Single or Multi-file Batch)
               </p>
               <input
                 ref={imageInputRef}
                 type="file"
                 multiple
-                accept="image/png,image/jpeg,image/webp"
+                accept="image/*,.png,.jpg,.jpeg,.webp,.heic,.heif"
                 onChange={(e) => e.target.files && handleImageFiles(e.target.files)}
                 aria-label="Upload images for background removal"
               />
@@ -1045,7 +1072,7 @@ export function BgRemover() {
                   <input
                     ref={videoInputRef}
                     type="file"
-                    accept="video/mp4,video/webm,video/quicktime"
+                    accept="video/mp4,video/webm,video/quicktime,video/*"
                     onChange={(e) => e.target.files?.[0] && handleVideoFile(e.target.files[0])}
                     aria-label="Upload video for background removal"
                   />
@@ -1059,7 +1086,13 @@ export function BgRemover() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <label style={{ margin: 0 }}>Accuracy & Model Preset</label>
               <span className="badge badge-mint" style={{ fontSize: '10px' }}>
-                {model === 'isnet' ? 'Highest Precision' : model === 'isnet_fp16' ? 'Fast & Crisp' : 'High Speed'}
+                {isMobile && model === 'isnet_quint8'
+                  ? 'Mobile Optimized'
+                  : model === 'isnet'
+                  ? 'Highest Precision'
+                  : model === 'isnet_fp16'
+                  ? 'Fast & Crisp'
+                  : 'High Speed'}
               </span>
             </div>
             <div className="tabs bg-model-tabs" style={{ marginBottom: '8px' }}>
@@ -1082,18 +1115,20 @@ export function BgRemover() {
               <button
                 className={`tab-btn${model === 'isnet_quint8' ? ' active' : ''}`}
                 onClick={() => setModel('isnet_quint8')}
-                title="Quantized 8-bit model for maximum speed"
+                title="Quantized 8-bit model for maximum speed and mobile stability"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
-                <Zap size={13} /> Turbo (INT8)
+                <Zap size={13} /> Turbo {isMobile ? '(Mobile)' : '(INT8)'}
               </button>
             </div>
             <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              {model === 'isnet'
+              {isMobile && model === 'isnet'
+                ? 'Ultra model uses 168MB neural weights. On mobile devices, Turbo (42MB) is strongly recommended to preserve device memory.'
+                : model === 'isnet'
                 ? 'Full 32-bit neural weights. Recommended for hair, subtle clothing boundaries, and studio cutouts.'
                 : model === 'isnet_fp16'
                 ? 'Half-precision model. 2x faster execution while keeping sharp boundary details.'
-                : 'Quantized INT8 model for extreme processing speed. Ideal for rapid video frame sequences.'}
+                : 'Quantized INT8 model (42MB) for maximum speed and memory stability. Ideal for mobile devices and rapid video frame sequences.'}
             </p>
           </div>
 

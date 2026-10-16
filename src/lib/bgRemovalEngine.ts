@@ -27,6 +27,19 @@ export interface BgRemovalOptions {
 }
 
 /**
+ * Detect whether the client is a mobile device / tablet with restricted RAM and touch interface.
+ */
+export function isMobileDevice(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isTouch = navigator.maxTouchPoints > 0;
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(ua);
+  const isSmallScreen = window.innerWidth <= 768 || window.innerHeight <= 768;
+  const isIPad = /Macintosh/i.test(ua) && isTouch;
+  return isMobileUA || isIPad || (isTouch && isSmallScreen);
+}
+
+/**
  * Check whether WebGPU is supported and available in the user's browser.
  */
 export async function checkWebGPUSupport(): Promise<boolean> {
@@ -42,62 +55,100 @@ export async function checkWebGPUSupport(): Promise<boolean> {
 }
 
 /**
- * Scale an image or Blob down to maxDimension if needed to optimize inference speed.
+ * Helper to safely load an HTMLImageElement from a Blob.
+ */
+function loadHtmlImage(blob: Blob | File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image element'));
+    };
+    img.src = url;
+  });
+}
+
+/**
+ * Scale an image or Blob down to maxDimension if needed to optimize inference speed and memory.
+ * On mobile devices, large camera photos (e.g. 12-48MP) are automatically clamped to safe dimensions (max 1600px).
  */
 export async function preprocessImage(
   source: Blob | File | HTMLCanvasElement,
   maxDimension: number = 0
 ): Promise<{ source: Blob | File | HTMLCanvasElement; width: number; height: number }> {
-  if (maxDimension <= 0) {
-    if (source instanceof HTMLCanvasElement) {
-      return { source, width: source.width, height: source.height };
-    }
-    const dims = await getImageDimensions(source);
-    return { source, width: dims.width, height: dims.height };
+  const isMobile = isMobileDevice();
+  // Safe limit on mobile is 1600px (fast, crisp, low memory footprint)
+  let effectiveMaxDim = maxDimension;
+  if (isMobile && (effectiveMaxDim <= 0 || effectiveMaxDim > 1600)) {
+    effectiveMaxDim = 1600;
   }
 
-  // Check dimensions
   let srcWidth = 0;
   let srcHeight = 0;
-  let imgBitmap: ImageBitmap | null = null;
 
   if (source instanceof HTMLCanvasElement) {
     srcWidth = source.width;
     srcHeight = source.height;
+    if (effectiveMaxDim <= 0 || Math.max(srcWidth, srcHeight) <= effectiveMaxDim) {
+      return { source, width: srcWidth, height: srcHeight };
+    }
   } else {
-    imgBitmap = await createImageBitmap(source);
-    srcWidth = imgBitmap.width;
-    srcHeight = imgBitmap.height;
-  }
-
-  if (Math.max(srcWidth, srcHeight) <= maxDimension) {
-    if (imgBitmap) imgBitmap.close();
-    return { source, width: srcWidth, height: srcHeight };
+    const dims = await getImageDimensions(source);
+    srcWidth = dims.width || 800;
+    srcHeight = dims.height || 600;
+    if (effectiveMaxDim <= 0 || Math.max(srcWidth, srcHeight) <= effectiveMaxDim) {
+      return { source, width: srcWidth, height: srcHeight };
+    }
   }
 
   // Scale down maintaining aspect ratio
-  const scale = maxDimension / Math.max(srcWidth, srcHeight);
-  const targetWidth = Math.round(srcWidth * scale);
-  const targetHeight = Math.round(srcHeight * scale);
+  const scale = effectiveMaxDim / Math.max(srcWidth, srcHeight);
+  const targetWidth = Math.max(1, Math.round(srcWidth * scale));
+  const targetHeight = Math.max(1, Math.round(srcHeight * scale));
 
   const canvas = document.createElement('canvas');
   canvas.width = targetWidth;
   canvas.height = targetHeight;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) {
-    if (imgBitmap) imgBitmap.close();
     return { source, width: srcWidth, height: srcHeight };
   }
 
   if (source instanceof HTMLCanvasElement) {
     ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
-  } else if (imgBitmap) {
-    ctx.drawImage(imgBitmap, 0, 0, targetWidth, targetHeight);
-    imgBitmap.close();
+  } else {
+    let drawn = false;
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const bmp = await createImageBitmap(source);
+        ctx.drawImage(bmp, 0, 0, targetWidth, targetHeight);
+        bmp.close();
+        drawn = true;
+      } catch {
+        drawn = false;
+      }
+    }
+    if (!drawn) {
+      try {
+        const img = await loadHtmlImage(source);
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+      } catch {
+        return { source, width: srcWidth, height: srcHeight };
+      }
+    }
   }
 
-  const scaledBlob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Resize failed'))), 'image/png');
+  const scaledBlob = await new Promise<Blob>((resolve) => {
+    canvas.toBlob(
+      (b) => resolve(b || (source instanceof Blob ? source : new Blob())),
+      'image/png'
+    );
   });
 
   return { source: scaledBlob, width: targetWidth, height: targetHeight };
@@ -399,36 +450,41 @@ export async function applyMatteRefinement(
   format: 'image/png' | 'image/webp' = 'image/png',
   quality: number = 0.95
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const url = URL.createObjectURL(transparentBlob);
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) {
-        resolve(transparentBlob);
-        return;
-      }
-      ctx.drawImage(img, 0, 0);
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      refineMatteImageData(imgData, refinement);
-      ctx.putImageData(imgData, 0, 0);
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) {
+          resolve(transparentBlob);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        refineMatteImageData(imgData, refinement);
+        ctx.putImageData(imgData, 0, 0);
 
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else resolve(transparentBlob);
-        },
-        format,
-        quality
-      );
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(blob);
+            else resolve(transparentBlob);
+          },
+          format,
+          quality
+        );
+      } catch (err) {
+        console.warn('Matte refinement failed on this device, using raw cutout:', err);
+        resolve(transparentBlob);
+      }
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Failed to load image for refinement'));
+      resolve(transparentBlob);
     };
     img.src = url;
   });
@@ -436,6 +492,8 @@ export async function applyMatteRefinement(
 
 /**
  * Remove background with GPU acceleration, precision models, and edge refinement.
+ * Includes automated mobile resilience: prefers Turbo 8-bit model and CPU Wasm on mobile devices,
+ * with multi-tier fallback to prevent mobile browser memory crashes.
  */
 export async function removeImageBackground(
   input: Blob | File | HTMLCanvasElement,
@@ -449,9 +507,11 @@ export async function removeImageBackground(
   timeMs: number;
 }> {
   const startTime = performance.now();
+  const isMobile = isMobileDevice();
+
   const {
-    model = 'isnet', // default to Ultra Quality (Full FP32 IS-Net)
-    device = 'gpu',  // auto WebGPU hardware acceleration
+    model,
+    device,
     format = 'image/png',
     quality = 0.95,
     maxDimension = 0,
@@ -467,31 +527,34 @@ export async function removeImageBackground(
     onProgress,
   } = options;
 
+  // On mobile devices, always default to quantized 8-bit model ('isnet_quint8', 42MB) instead of 168MB FP32 model
+  // to avoid mobile Safari/Chrome OOM tab termination.
+  let targetModel: BgRemovalModel = model || (isMobile ? 'isnet_quint8' : 'isnet');
+
+  // On mobile devices, WebGPU shader support in ONNX is unstable/experimental; prefer CPU WebAssembly
+  const hasWebGPU = !isMobile && (await checkWebGPUSupport());
+  let targetDevice: BgRemovalDevice = (device === 'gpu' && hasWebGPU) ? 'gpu' : 'cpu';
+
   onProgress?.(5, 'Preparing image and hardware acceleration…');
 
-  // Pre-process scaling if maxDimension is configured
-  const preprocessed = await preprocessImage(input, maxDimension);
-  const inputSource = preprocessed.source;
+  // Pre-process scaling (mobile devices automatically clamped to safe bounds <= 1600px)
+  let preprocessed = await preprocessImage(input, maxDimension);
+  let inputSource = preprocessed.source;
 
-  onProgress?.(15, 'Loading AI neural network model…');
+  onProgress?.(15, `Loading AI neural network (${targetModel === 'isnet_quint8' ? 'Turbo' : targetModel})…`);
 
   // Dynamically import @imgly/background-removal to keep SSR clean
   const { removeBackground } = await import('@imgly/background-removal');
 
-  // Check WebGPU availability
-  const hasWebGPU = await checkWebGPUSupport();
-  const effectiveDevice: BgRemovalDevice = (device === 'gpu' && hasWebGPU) ? 'gpu' : 'cpu';
-
-  onProgress?.(30, effectiveDevice === 'gpu' ? 'Running on GPU (WebGPU accelerated)…' : 'Running on CPU (Multi-threaded)…');
-
   const publicPath = 'https://staticimgly.com/@imgly/background-removal-data/1.7.0/dist/';
-  let rawResultBlob: Blob;
+  let rawResultBlob: Blob | null = null;
+  let deviceUsedStr = targetDevice === 'gpu' ? 'WebGPU (Hardware Accelerated)' : 'CPU (WebAssembly)';
 
-  const runInference = async (targetDevice: BgRemovalDevice) => {
-    return await removeBackground(inputSource as any, {
+  const executeInference = async (dev: BgRemovalDevice, mod: BgRemovalModel, src: any): Promise<Blob> => {
+    return await removeBackground(src, {
       publicPath,
-      device: targetDevice,
-      model,
+      device: dev,
+      model: mod,
       proxyToWorker: false,
       output: {
         format: 'image/png',
@@ -506,32 +569,77 @@ export async function removeImageBackground(
     });
   };
 
+  // Attempt 1: Target device and model
+  onProgress?.(30, targetDevice === 'gpu' ? 'Running on GPU (WebGPU accelerated)…' : 'Running on CPU (Multi-threaded)…');
   try {
-    rawResultBlob = await runInference(effectiveDevice);
-  } catch (err) {
-    if (effectiveDevice === 'gpu') {
-      onProgress?.(25, 'WebGPU unavailable on this system, running with CPU fallback…');
-      rawResultBlob = await runInference('cpu');
-    } else {
-      throw err;
+    rawResultBlob = await executeInference(targetDevice, targetModel, inputSource);
+  } catch (err1) {
+    console.warn(`Attempt 1 failed (${targetDevice}, ${targetModel}):`, err1);
+
+    // Attempt 2: If GPU failed, fallback to CPU with same model
+    if (targetDevice === 'gpu') {
+      try {
+        onProgress?.(25, 'WebGPU unavailable on this system, running with CPU fallback…');
+        targetDevice = 'cpu';
+        deviceUsedStr = 'CPU (WebAssembly fallback)';
+        rawResultBlob = await executeInference('cpu', targetModel, inputSource);
+      } catch (err2) {
+        console.warn(`Attempt 2 failed (cpu, ${targetModel}):`, err2);
+      }
     }
+
+    // Attempt 3: If still failing and model is not quint8, fallback to isnet_quint8 (42MB mobile-safe)
+    if (!rawResultBlob && targetModel !== 'isnet_quint8') {
+      try {
+        onProgress?.(25, 'Switching to Turbo mobile model (42MB quantized)…');
+        targetModel = 'isnet_quint8';
+        targetDevice = 'cpu';
+        deviceUsedStr = 'CPU (Turbo Quint8)';
+        rawResultBlob = await executeInference('cpu', 'isnet_quint8', inputSource);
+      } catch (err3) {
+        console.warn('Attempt 3 failed (cpu, isnet_quint8):', err3);
+      }
+    }
+
+    // Attempt 4: If still failing (memory pressure), downscale image to 1024px and retry
+    if (!rawResultBlob) {
+      try {
+        onProgress?.(25, 'Retrying with optimized dimensions for memory stability…');
+        const downscaled = await preprocessImage(input, 1024);
+        targetDevice = 'cpu';
+        targetModel = 'isnet_quint8';
+        deviceUsedStr = 'CPU (Optimized 1024px)';
+        rawResultBlob = await executeInference('cpu', 'isnet_quint8', downscaled.source);
+        preprocessed = downscaled;
+      } catch (err4) {
+        console.error('All inference attempts failed:', err4);
+        throw new Error('Background removal failed to initialize. Please check your network connection.');
+      }
+    }
+  }
+
+  if (!rawResultBlob) {
+    throw new Error('Background removal returned no result.');
   }
 
   onProgress?.(90, 'Refining edge contours and alpha matte…');
 
   let finalBlob = rawResultBlob;
   if (refineEdges) {
-    const fullRefinement: MattingRefinementOptions = {
-      featherRadius: refinement.featherRadius ?? 0.8,
-      thresholdCutoff: refinement.thresholdCutoff ?? 45,
-      deFringe: refinement.deFringe ?? true,
-      edgeChoke: refinement.edgeChoke ?? 1.0,
-      contrastBoost: refinement.contrastBoost ?? 1.4,
-      removeStrayIslands: refinement.removeStrayIslands ?? true,
-    };
-    finalBlob = await applyMatteRefinement(rawResultBlob, fullRefinement, format, quality);
+    try {
+      const fullRefinement: MattingRefinementOptions = {
+        featherRadius: refinement.featherRadius ?? 0.8,
+        thresholdCutoff: refinement.thresholdCutoff ?? 45,
+        deFringe: refinement.deFringe ?? true,
+        edgeChoke: refinement.edgeChoke ?? 1.0,
+        contrastBoost: refinement.contrastBoost ?? 1.4,
+        removeStrayIslands: refinement.removeStrayIslands ?? true,
+      };
+      finalBlob = await applyMatteRefinement(rawResultBlob, fullRefinement, format, quality);
+    } catch {
+      finalBlob = rawResultBlob;
+    }
   } else if (format === 'image/webp') {
-    // If user requested WebP without refinement, convert PNG blob to WebP
     finalBlob = await convertBlobFormat(rawResultBlob, 'image/webp', quality);
   }
 
@@ -543,7 +651,7 @@ export async function removeImageBackground(
     rawBlob: rawResultBlob,
     width: preprocessed.width,
     height: preprocessed.height,
-    deviceUsed: effectiveDevice === 'gpu' ? 'WebGPU (Hardware Accelerated)' : 'CPU (WebAssembly)',
+    deviceUsed: deviceUsedStr,
     timeMs: duration,
   };
 }
